@@ -1,10 +1,13 @@
 import express from 'express';
 import { databaseStatus } from './config/database.js';
+import { createAuthRouter } from './routes/auth-routes.js';
 
-export function createApp() {
+export function createApp({ authService, exposeOtp = false } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json());
+
+  if (authService) app.use('/api/auth', createAuthRouter(authService, { exposeOtp }));
 
   app.get('/health', (_request, response) => {
     const database = databaseStatus();
@@ -12,6 +15,10 @@ export function createApp() {
       status: database === 'connected' ? 'ok' : 'degraded',
       database
     });
+  });
+
+  app.use((error, _request, response, _next) => {
+    response.status(error.status ?? 500).json({ error: error.message ?? 'Internal server error' });
   });
 
   return app;

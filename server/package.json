@@ -11,6 +11,9 @@
   "dependencies": {
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
+    "ioredis": "^5.7.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
     "mongoose": "^8.18.0"
   }
 }

@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 
 dotenv.config({ quiet: true });
 
-const required = ['MONGODB_URI'];
+const required = ['MONGODB_URI', 'JWT_SECRET', 'REDIS_URL'];
 
 export function getConfig() {
   const missing = required.filter((key) => !process.env[key]);
@@ -19,6 +19,11 @@ export function getConfig() {
     env: process.env.NODE_ENV ?? 'development',
     port,
     mongoUri: process.env.MONGODB_URI,
-    mongoDbName: process.env.MONGODB_DB_NAME ?? 'seatspot'
+    mongoDbName: process.env.MONGODB_DB_NAME ?? 'seatspot',
+    jwtSecret: process.env.JWT_SECRET,
+    jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '1h',
+    redisUrl: process.env.REDIS_URL,
+    otpTtlSeconds: Number(process.env.OTP_TTL_SECONDS ?? 300),
+    authPartitionRestaurantId: process.env.AUTH_PARTITION_RESTAURANT_ID ?? '000000000000000000000001'
   });
 }

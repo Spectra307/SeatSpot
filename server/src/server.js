@@ -2,12 +2,24 @@ import { createApp } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { getConfig } from './config/env.js';
 import './models/index.js';
+import { connectRedis, disconnectRedis } from './config/redis.js';
+import { User } from './models/user.js';
+import { AuthService } from './services/auth-service.js';
+import { OtpStore } from './services/otp-store.js';
 
 async function start() {
   const config = getConfig();
   await connectDatabase(config);
+  const redis = await connectRedis(config.redisUrl);
+  const authService = new AuthService({
+    users: User,
+    otpStore: new OtpStore(redis, config.otpTtlSeconds),
+    jwtSecret: config.jwtSecret,
+    jwtExpiresIn: config.jwtExpiresIn,
+    authPartitionRestaurantId: config.authPartitionRestaurantId
+  });
 
-  const server = createApp().listen(config.port, () => {
+  const server = createApp({ authService, exposeOtp: config.env !== 'production' }).listen(config.port, () => {
     console.info(`SeatSpot API listening on port ${config.port}`);
   });
 
@@ -15,6 +27,7 @@ async function start() {
     console.info(`${signal} received; stopping SeatSpot API`);
     server.close(async () => {
       await disconnectDatabase();
+      await disconnectRedis();
       process.exit(0);
     });
   };

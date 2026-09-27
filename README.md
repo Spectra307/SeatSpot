@@ -14,8 +14,13 @@ Every MongoDB domain schema includes `restaurantId` and a `{ restaurantId, _id }
 3. Start the API with `npm.cmd run dev`.
 4. Request `GET http://localhost:4000/health`.
 
-The server waits for MongoDB before it listens. A successful health response is:
+The server waits for MongoDB and Redis before it listens. A successful health response is:
 
 ```json
 { "status": "ok", "database": "connected" }
 ```
+
+## Auth API
+
+`POST /api/auth/signup` accepts `name`, `email`, and an 8-character minimum `password`.
+It stores a six-digit OTP in Redis under `otp:<email>` with the configured TTL. In development the signup response includes the OTP for local testing; production responses never expose it. Submit it to `POST /api/auth/verify-otp` to receive a JWT. `POST /api/auth/login` issues a JWT for verified accounts.
