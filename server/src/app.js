@@ -1,13 +1,15 @@
 import express from 'express';
 import { databaseStatus } from './config/database.js';
 import { createAuthRouter } from './routes/auth-routes.js';
+import { createRestaurantRouter } from './routes/restaurant-routes.js';
 
-export function createApp({ authService, exposeOtp = false } = {}) {
+export function createApp({ authService, restaurantService, jwtSecret, exposeOtp = false } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json());
 
   if (authService) app.use('/api/auth', createAuthRouter(authService, { exposeOtp }));
+  if (restaurantService) app.use('/api/restaurants', createRestaurantRouter(restaurantService, jwtSecret));
 
   app.get('/health', (_request, response) => {
     const database = databaseStatus();

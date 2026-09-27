@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "seed": "node scripts/seed-restaurants.js",
     "test": "node --test"
   },
   "dependencies": {

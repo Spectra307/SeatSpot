@@ -6,6 +6,10 @@ import { connectRedis, disconnectRedis } from './config/redis.js';
 import { User } from './models/user.js';
 import { AuthService } from './services/auth-service.js';
 import { OtpStore } from './services/otp-store.js';
+import { Restaurant } from './models/restaurant.js';
+import { Table } from './models/table.js';
+import { GooglePlacesClient } from './services/google-places-client.js';
+import { RestaurantService } from './services/restaurant-service.js';
 
 async function start() {
   const config = getConfig();
@@ -18,8 +22,9 @@ async function start() {
     jwtExpiresIn: config.jwtExpiresIn,
     authPartitionRestaurantId: config.authPartitionRestaurantId
   });
+  const restaurantService = new RestaurantService({ restaurants: Restaurant, tables: Table, mapsClient: new GooglePlacesClient(config.googleMapsApiKey) });
 
-  const server = createApp({ authService, exposeOtp: config.env !== 'production' }).listen(config.port, () => {
+  const server = createApp({ authService, restaurantService, jwtSecret: config.jwtSecret, exposeOtp: config.env !== 'production' }).listen(config.port, () => {
     console.info(`SeatSpot API listening on port ${config.port}`);
   });
 
