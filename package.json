@@ -1,0 +1,17 @@
+{
+  "name": "seatspot",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@seatspot/server",
+    "start": "npm run start --workspace=@seatspot/server",
+    "test": "npm run test --workspace=@seatspot/server"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
