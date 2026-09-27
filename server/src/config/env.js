@@ -24,6 +24,7 @@ export function getConfig() {
     jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '1h',
     redisUrl: process.env.REDIS_URL,
     otpTtlSeconds: Number(process.env.OTP_TTL_SECONDS ?? 300),
-    authPartitionRestaurantId: process.env.AUTH_PARTITION_RESTAURANT_ID ?? '000000000000000000000001'
+    authPartitionRestaurantId: process.env.AUTH_PARTITION_RESTAURANT_ID ?? '000000000000000000000001',
+    googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY
   });
 }
