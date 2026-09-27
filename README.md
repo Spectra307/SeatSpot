@@ -9,7 +9,7 @@ Every MongoDB domain schema includes `restaurantId` and a `{ restaurantId, _id }
 
 ## Run
 
-1. Copy `.env.example` to `.env` and set `MONGODB_URI` for a reachable MongoDB instance.
+1. Copy `.env.example` to `.env` in the repository root and set `MONGODB_URI` for a reachable MongoDB instance. The server workspace reads this root file.
 2. Install dependencies with `npm.cmd install`.
 3. Start the API with `npm.cmd run dev`.
 4. Request `GET http://localhost:4000/health`.

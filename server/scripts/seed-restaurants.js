@@ -1,10 +1,11 @@
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import { fileURLToPath } from 'node:url';
 import { connectDatabase, disconnectDatabase } from '../src/config/database.js';
 import { Restaurant } from '../src/models/restaurant.js';
 import { Table } from '../src/models/table.js';
 
-dotenv.config({ quiet: true });
+dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
 if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is required');
 
 const seedRestaurants = [
