@@ -38,7 +38,10 @@ async function start() {
     bookings: Booking,
     mongoClient: mongoose.connection.getClient()
   });
-  const queueService = new QueueService(redis);
+  const queueService = new QueueService(redis, {
+    bookings: Booking,
+    bookingServiceFactory
+  });
   const dashboardService = new DashboardService({
     tables: Table,
     bookings: Booking,

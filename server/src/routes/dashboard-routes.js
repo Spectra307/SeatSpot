@@ -36,6 +36,24 @@ export function createDashboardRouter({ dashboardService, restaurants, jwtSecret
     } catch (error) { next(error); }
   });
 
+  router.post('/:restaurantId/dashboard/queue/handoff', async (request, response, next) => {
+    try {
+      const restaurantId = await resolveRestaurantId(restaurants, request.params.restaurantId);
+      const result = await dashboardService.handoffNextCustomer({
+        restaurantId,
+        staffId: request.auth.sub,
+        tableId: request.body?.tableId,
+        partySize: request.body?.partySize,
+        startsAt: request.body?.startsAt
+      });
+      if (!result) {
+        response.status(404).json({ error: 'Queue is empty' });
+        return;
+      }
+      response.json(result);
+    } catch (error) { next(error); }
+  });
+
   router.patch('/:restaurantId/dashboard/tables/:tableId/status', async (request, response, next) => {
     try {
       const restaurantId = await resolveRestaurantId(restaurants, request.params.restaurantId);

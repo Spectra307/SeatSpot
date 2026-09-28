@@ -33,6 +33,16 @@ export class DashboardService {
     });
   }
 
+  async handoffNextCustomer({ restaurantId, staffId, tableId, partySize, startsAt }) {
+    return this.queueService.handoffNextCustomer({
+      restaurantId: restaurantId.toString(),
+      staffId,
+      tableId,
+      partySize,
+      startsAt
+    });
+  }
+
   async overrideTableStatus({ restaurantId, tableId, status }) {
     if (!OVERRIDABLE_STATUSES.has(status)) {
       throw createHttpError('Table status must be available, occupied, or unavailable', 400);

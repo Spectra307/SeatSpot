@@ -11,5 +11,9 @@ const bookingSchema = new mongoose.Schema({
 
 bookingSchema.index({ restaurantId: 1, _id: 1 });
 bookingSchema.index({ restaurantId: 1, tableId: 1, startsAt: 1 });
+bookingSchema.index(
+  { restaurantId: 1, userId: 1 },
+  { unique: true, partialFilterExpression: { status: 'confirmed' } }
+);
 
 export const Booking = mongoose.model('Booking', bookingSchema);

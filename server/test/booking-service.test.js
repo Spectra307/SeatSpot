@@ -79,6 +79,9 @@ test('twenty concurrent reservations produce one success and nineteen HTTP 409 c
 
 test('a booking insert failure rolls the table status back to available', async () => {
   const failingBookings = {
+    findOne(...args) {
+      return Booking.findOne(...args);
+    },
     create() {
       throw new Error('forced booking insert failure');
     }

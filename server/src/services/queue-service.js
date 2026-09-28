@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 function createHttpError(message, status) {
   const error = new Error(message);
   error.status = status;
@@ -5,9 +7,12 @@ function createHttpError(message, status) {
 }
 
 export class QueueService {
-  constructor(redis, { queueKeyPrefix = 'queue:' } = {}) {
+  constructor(redis, { queueKeyPrefix = 'queue:', bookings, bookingServiceFactory, handoffLockMilliseconds = 30000 } = {}) {
     this.redis = redis;
     this.queueKeyPrefix = queueKeyPrefix;
+    this.bookings = bookings;
+    this.bookingServiceFactory = bookingServiceFactory;
+    this.handoffLockMilliseconds = handoffLockMilliseconds;
   }
 
   _queueKey(restaurantId) {
@@ -174,6 +179,79 @@ export class QueueService {
       throw createHttpError('Queue service unavailable while seating customer', 503);
     } finally {
       await this.redis.unwatch().catch(() => undefined);
+    }
+  }
+
+  async handoffNextCustomer({ restaurantId, staffId, tableId, partySize = 1, startsAt }) {
+    if (!restaurantId || !staffId || !tableId) {
+      throw createHttpError('restaurantId, staffId, and tableId are required', 400);
+    }
+    if (!this.bookings || !this.bookingServiceFactory) {
+      throw createHttpError('Queue handoff service is not configured', 503);
+    }
+
+    const queueKey = this._queueKey(restaurantId);
+    const lockKey = `${queueKey}:handoff-lock`;
+    const lockToken = randomUUID();
+
+    try {
+      const lock = await this.redis.set(lockKey, lockToken, 'PX', this.handoffLockMilliseconds, 'NX');
+      if (lock !== 'OK') {
+        throw createHttpError('A queue handoff is already in progress', 409);
+      }
+    } catch (error) {
+      if (error?.status) throw error;
+      throw createHttpError('Queue service unavailable while starting handoff', 503);
+    }
+
+    try {
+      while (true) {
+        const queue = await this.redis.lrange(queueKey, 0, -1);
+        const customerId = queue[0];
+        if (!customerId) return null;
+
+        const existingBooking = await this.bookings.findOne({
+          restaurantId,
+          userId: customerId,
+          status: 'confirmed'
+        }).select('_id').lean();
+        if (existingBooking) {
+          await this.redis.lrem(queueKey, 0, customerId);
+          continue;
+        }
+
+        const bookingService = await this.bookingServiceFactory(restaurantId.toString());
+        const booking = await bookingService.reserveTable({
+          tableId,
+          userId: customerId,
+          partySize,
+          startsAt: startsAt ?? new Date(Date.now() + 60 * 1000)
+        });
+
+        try {
+          await this.redis.lrem(queueKey, 1, customerId);
+        } catch {
+          throw createHttpError('Booking committed but queue cleanup failed; retry the handoff', 503);
+        }
+
+        return {
+          restaurantId: restaurantId.toString(),
+          staffId,
+          seatedUserId: customerId,
+          booking,
+          queueLength: await this.redis.llen(queueKey)
+        };
+      }
+    } catch (error) {
+      if (error?.status) throw error;
+      throw createHttpError('Queue service unavailable while handing off table', 503);
+    } finally {
+      await this.redis.eval(`
+        if redis.call('GET', KEYS[1]) == ARGV[1] then
+          return redis.call('DEL', KEYS[1])
+        end
+        return 0
+      `, 1, lockKey, lockToken).catch(() => undefined);
     }
   }
 }

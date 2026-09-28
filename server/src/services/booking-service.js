@@ -33,6 +33,15 @@ export class BookingService {
       let booking;
 
       await session.withTransaction(async () => {
+        const existingBooking = await this.bookings.findOne({
+          restaurantId: this.restaurantId,
+          userId,
+          status: 'confirmed'
+        }).session(session).select('_id').lean();
+        if (existingBooking) {
+          throw createHttpError('User already has an active booking', 409);
+        }
+
         const table = await this.tables.findOneAndUpdate(
           {
             _id: tableId,
@@ -73,6 +82,11 @@ export class BookingService {
       });
 
       return booking;
+    } catch (error) {
+      if (error?.code === 11000) {
+        throw createHttpError('User already has an active booking', 409);
+      }
+      throw error;
     } finally {
       await session.endSession();
     }
