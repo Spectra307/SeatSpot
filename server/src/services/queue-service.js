@@ -22,6 +22,25 @@ export class QueueService {
     const queueKey = this._queueKey(restaurantId);
 
     try {
+      if (typeof this.redis.eval === 'function') {
+        const [position, alreadyInQueue, queueLength] = await this.redis.eval(`
+          local existing = redis.call('LPOS', KEYS[1], ARGV[1])
+          if existing then
+            return { existing + 1, 1, redis.call('LLEN', KEYS[1]) }
+          end
+          local length = redis.call('RPUSH', KEYS[1], ARGV[1])
+          return { length, 0, length }
+        `, 1, queueKey, userId);
+
+        return {
+          restaurantId,
+          userId,
+          position: Number(position),
+          alreadyInQueue: Number(alreadyInQueue) === 1,
+          queueLength: Number(queueLength)
+        };
+      }
+
       const existingPosition = await this.redis.lpos(queueKey, userId);
       if (existingPosition !== null) {
         return {
