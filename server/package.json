@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "seed": "node scripts/seed-restaurants.js",
     "seed:staff": "node scripts/seed-staff.js",
+    "seed:demo": "node scripts/seed-demo.js",
     "test": "node --test"
   },
   "dependencies": {

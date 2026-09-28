@@ -35,3 +35,5 @@ Run `npm.cmd run seed --workspace=@seatspot/server` to add the local catalogue. 
 Restaurant search, get, and availability reads are available to authenticated users. Restaurant updates require staff credentials for that same restaurant. Restaurant creation and deletion are disabled until an admin provisioning workflow is added.
 
 Public signup always creates a customer in the configured consumer partition; it ignores requested roles and restaurant IDs. To provision staff, set `STAFF_NAME`, `STAFF_EMAIL`, `STAFF_PASSWORD`, and an existing `STAFF_RESTAURANT_ID` in the operator environment, then run `npm.cmd run seed:staff --workspace=@seatspot/server`. Staff login includes that restaurant ID in the login request; the issued role and restaurant ID come from the stored staff account, not the request.
+
+For a local demo, set `DEMO_STAFF_PASSWORD` in `.env` and run `npm.cmd run seed:demo --workspace=@seatspot/server`. This creates two restaurants, varied-capacity tables, and one staff account per restaurant (`staff.harbor@seatspot.local` and `staff.garden@seatspot.local`).

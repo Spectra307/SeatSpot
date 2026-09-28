@@ -10,6 +10,7 @@ import { Booking } from './models/booking.js';
 import { AuthService } from './services/auth-service.js';
 import { LoginAttemptStore } from './services/login-attempt-store.js';
 import { createBookingServiceFactory } from './services/booking-service-factory.js';
+import { DashboardService } from './services/dashboard-service.js';
 import { OtpStore } from './services/otp-store.js';
 import { Restaurant } from './models/restaurant.js';
 import { Table } from './models/table.js';
@@ -38,12 +39,20 @@ async function start() {
     mongoClient: mongoose.connection.getClient()
   });
   const queueService = new QueueService(redis);
+  const dashboardService = new DashboardService({
+    tables: Table,
+    bookings: Booking,
+    queueService,
+    bookingServiceFactory,
+    mongoClient: mongoose.connection.getClient()
+  });
 
   const app = createApp({
     authService,
     restaurantService,
     bookingServiceFactory,
     queueService,
+    dashboardService,
     restaurants: Restaurant,
     jwtSecret: config.jwtSecret,
     exposeOtp: config.env !== 'production'

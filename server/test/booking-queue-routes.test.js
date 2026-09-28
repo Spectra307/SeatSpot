@@ -12,6 +12,7 @@ import { Table } from '../src/models/table.js';
 import { User } from '../src/models/user.js';
 import { AuthService } from '../src/services/auth-service.js';
 import { createBookingServiceFactory } from '../src/services/booking-service-factory.js';
+import { DashboardService } from '../src/services/dashboard-service.js';
 import { LoginAttemptStore } from '../src/services/login-attempt-store.js';
 import { OtpStore } from '../src/services/otp-store.js';
 import { QueueService } from '../src/services/queue-service.js';
@@ -45,6 +46,13 @@ before(async () => {
     mongoClient: mongoose.connection.getClient()
   });
   const queueService = new QueueService(redis, { queueKeyPrefix: queuePrefix });
+  const dashboardService = new DashboardService({
+    tables: Table,
+    bookings: Booking,
+    queueService,
+    bookingServiceFactory,
+    mongoClient: mongoose.connection.getClient()
+  });
   const authService = new AuthService({
     users: User,
     otpStore: new OtpStore(redis, 300),
@@ -67,6 +75,7 @@ before(async () => {
     authService,
     bookingServiceFactory,
     queueService,
+    dashboardService,
     restaurants: Restaurant,
     restaurantService,
     jwtSecret,
@@ -491,4 +500,65 @@ test('unknown email and wrong password have the same response; per-email and per
     .set('x-forwarded-for', '198.51.100.30')
     .send({ email: ipLockEmail, password: emailPassword })
     .expect(200);
+});
+
+test('dashboard endpoints reject customers and staff from another restaurant', async () => {
+  const restaurantA = await createRestaurantWithTable();
+  const restaurantB = await createRestaurantWithTable();
+  const pathA = `/api/restaurants/${restaurantA.restaurantId}/dashboard/tables`;
+  const pathB = `/api/restaurants/${restaurantB.restaurantId}/dashboard/tables`;
+
+  await request(app).get(pathA).set('authorization', `Bearer ${customerToken()}`).expect(403);
+  await request(app)
+    .get(pathB)
+    .set('authorization', `Bearer ${staffToken('staff-a', restaurantA.restaurantId)}`)
+    .expect(403);
+
+  const ownTables = await request(app)
+    .get(pathA)
+    .set('authorization', `Bearer ${staffToken('staff-a', restaurantA.restaurantId)}`)
+    .expect(200);
+  assert.equal(ownTables.body.tables.length, 1);
+
+  const queue = await request(app)
+    .get(`/api/restaurants/${restaurantA.restaurantId}/dashboard/queue`)
+    .set('authorization', `Bearer ${staffToken('staff-a', restaurantA.restaurantId)}`)
+    .expect(200);
+  assert.equal(queue.body.queueLength, 0);
+});
+
+test('walk-in seating and customer booking race for one table with exactly one winner', async () => {
+  const { restaurantId, table } = await createRestaurantWithTable();
+  const path = `/api/restaurants/${restaurantId}`;
+  const walkInPath = `${path}/dashboard/tables/${table._id}/walk-in`;
+  const customerPath = `${path}/bookings`;
+  const results = await Promise.all([
+    request(app)
+      .post(walkInPath)
+      .set('authorization', `Bearer ${staffToken('staff-a', restaurantId)}`)
+      .send({ userId: new mongoose.Types.ObjectId().toString(), partySize: 2 }),
+    request(app)
+      .post(customerPath)
+      .set('authorization', `Bearer ${customerToken()}`)
+      .send(bookingBody(table._id))
+  ]);
+
+  assert.deepEqual(results.map((result) => result.status).sort(), [201, 409]);
+  assert.equal(await Booking.countDocuments({ tableId: table._id, status: 'confirmed' }), 1);
+});
+
+test('dashboard cannot override a table with a confirmed booking to available', async () => {
+  const { restaurantId, table } = await createRestaurantWithTable();
+  await request(app)
+    .post(`/api/restaurants/${restaurantId}/bookings`)
+    .set('authorization', `Bearer ${customerToken()}`)
+    .send(bookingBody(table._id))
+    .expect(201);
+
+  await request(app)
+    .patch(`/api/restaurants/${restaurantId}/dashboard/tables/${table._id}/status`)
+    .set('authorization', `Bearer ${staffToken('staff-a', restaurantId)}`)
+    .send({ status: 'available' })
+    .expect(409);
+  assert.equal((await Table.findById(table._id).lean()).status, 'reserved');
 });
