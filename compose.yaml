@@ -1,0 +1,48 @@
+services:
+  mongodb:
+    image: mongo:7
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - seatspot-net
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host localhost:27017 --eval
+          'try { rs.status(); } catch (error) { rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]}); }'
+          >/dev/null &&
+          mongosh --quiet --host localhost:27017 --eval
+          'quit(rs.status().ok === 1 ? 0 : 1)'
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - seatspot-net
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mongodb-data:
+  redis-data:
+
+networks:
+  seatspot-net:
+    driver: bridge
