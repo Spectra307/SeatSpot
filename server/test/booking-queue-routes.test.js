@@ -81,7 +81,7 @@ before(async () => {
     jwtSecret,
     exposeOtp: true
   });
-  app.set('trust proxy', true);
+  app.set('trust proxy', 1);
 });
 
 after(async () => {
