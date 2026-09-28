@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { createApp } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { getConfig } from './config/env.js';
@@ -10,6 +11,7 @@ import { Restaurant } from './models/restaurant.js';
 import { Table } from './models/table.js';
 import { GooglePlacesClient } from './services/google-places-client.js';
 import { RestaurantService } from './services/restaurant-service.js';
+import { SocketRealtimeService } from './services/socket-realtime.js';
 
 async function start() {
   const config = getConfig();
@@ -24,7 +26,12 @@ async function start() {
   });
   const restaurantService = new RestaurantService({ restaurants: Restaurant, tables: Table, mapsClient: new GooglePlacesClient(config.googleMapsApiKey) });
 
-  const server = createApp({ authService, restaurantService, jwtSecret: config.jwtSecret, exposeOtp: config.env !== 'production' }).listen(config.port, () => {
+  const app = createApp({ authService, restaurantService, jwtSecret: config.jwtSecret, exposeOtp: config.env !== 'production' });
+  const server = createServer(app);
+  const socketRealtimeService = new SocketRealtimeService({ jwtSecret: config.jwtSecret });
+  socketRealtimeService.attach(server);
+
+  server.listen(config.port, () => {
     console.info(`SeatSpot API listening on port ${config.port}`);
   });
 
