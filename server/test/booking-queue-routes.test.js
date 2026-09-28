@@ -1,5 +1,6 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
@@ -8,8 +9,12 @@ import { createApp } from '../src/app.js';
 import { Booking } from '../src/models/booking.js';
 import { Restaurant } from '../src/models/restaurant.js';
 import { Table } from '../src/models/table.js';
+import { User } from '../src/models/user.js';
+import { AuthService } from '../src/services/auth-service.js';
 import { createBookingServiceFactory } from '../src/services/booking-service-factory.js';
+import { OtpStore } from '../src/services/otp-store.js';
 import { QueueService } from '../src/services/queue-service.js';
+import { RestaurantService } from '../src/services/restaurant-service.js';
 
 const jwtSecret = 'booking-queue-test-secret';
 const mongoUri = process.env.MONGO_URI
@@ -19,12 +24,13 @@ const redisUrl = process.env.REDIS_URL
   ?? `redis://:${encodeURIComponent(process.env.REDIS_PASSWORD ?? 'replace-with-a-strong-redis-password')}@127.0.0.1:6379`;
 const databaseName = `seatspot_http_tests_${process.pid}`;
 const queuePrefix = `seatspot:http-tests:${process.pid}:`;
+const authPartitionRestaurantId = '000000000000000000000001';
 let redis;
 let app;
 
 before(async () => {
   await mongoose.connect(mongoUri, { dbName: databaseName, serverSelectionTimeoutMS: 5000 });
-  await Promise.all([Restaurant.init(), Table.init(), Booking.init()]);
+  await Promise.all([Restaurant.init(), Table.init(), Booking.init(), User.init()]);
 
   redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
   await redis.connect();
@@ -36,7 +42,27 @@ before(async () => {
     mongoClient: mongoose.connection.getClient()
   });
   const queueService = new QueueService(redis, { queueKeyPrefix: queuePrefix });
-  app = createApp({ bookingServiceFactory, queueService, restaurants: Restaurant, jwtSecret });
+  const authService = new AuthService({
+    users: User,
+    otpStore: new OtpStore(redis, 300),
+    jwtSecret,
+    jwtExpiresIn: '1h',
+    authPartitionRestaurantId
+  });
+  const restaurantService = new RestaurantService({
+    restaurants: Restaurant,
+    tables: Table,
+    mapsClient: { enabled: false }
+  });
+  app = createApp({
+    authService,
+    bookingServiceFactory,
+    queueService,
+    restaurants: Restaurant,
+    restaurantService,
+    jwtSecret,
+    exposeOtp: true
+  });
 });
 
 after(async () => {
@@ -55,8 +81,12 @@ function customerToken(userId = new mongoose.Types.ObjectId().toString()) {
   return jwt.sign({
     sub: userId,
     role: 'customer',
-    restaurantId: '000000000000000000000001'
+    restaurantId: authPartitionRestaurantId
   }, jwtSecret);
+}
+
+function staffToken(userId, restaurantId) {
+  return jwt.sign({ sub: userId, role: 'staff', restaurantId }, jwtSecret);
 }
 
 async function createRestaurantWithTable(capacity = 4) {
@@ -200,4 +230,111 @@ test('customers can join and leave a queue over HTTP', async () => {
     .set('authorization', authorization)
     .send({ userId: userBId })
     .expect(404);
+});
+
+test('restaurant read access is authenticated while patching is limited to staff of that restaurant', async () => {
+  const restaurantA = await createRestaurantWithTable();
+  const restaurantB = await createRestaurantWithTable();
+  const customerAuthorization = `Bearer ${customerToken()}`;
+  const staffAAuthorization = `Bearer ${staffToken('staff-a', restaurantA.restaurantId)}`;
+
+  await request(app)
+    .patch(`/api/restaurants/${restaurantA.restaurantId}`)
+    .set('authorization', customerAuthorization)
+    .send({ name: 'Customer edit attempt' })
+    .expect(403);
+  await request(app)
+    .delete(`/api/restaurants/${restaurantA.restaurantId}`)
+    .set('authorization', customerAuthorization)
+    .expect(403);
+
+  await request(app)
+    .patch(`/api/restaurants/${restaurantB.restaurantId}`)
+    .set('authorization', staffAAuthorization)
+    .send({ name: 'Cross-tenant edit attempt' })
+    .expect(403);
+  await request(app)
+    .delete(`/api/restaurants/${restaurantB.restaurantId}`)
+    .set('authorization', staffAAuthorization)
+    .expect(403);
+
+  const updated = await request(app)
+    .patch(`/api/restaurants/${restaurantA.restaurantId}`)
+    .set('authorization', staffAAuthorization)
+    .send({ name: 'Staff authorized edit' })
+    .expect(200);
+  assert.equal(updated.body.name, 'Staff authorized edit');
+
+  await request(app)
+    .delete(`/api/restaurants/${restaurantA.restaurantId}`)
+    .set('authorization', staffAAuthorization)
+    .expect(403);
+  await request(app)
+    .post('/api/restaurants')
+    .set('authorization', staffAAuthorization)
+    .send({ name: 'Unauthorized create', latitude: 0, longitude: 0 })
+    .expect(403);
+
+  const availability = await request(app)
+    .get(`/api/restaurants/${restaurantA.restaurantId}/availability`)
+    .set('authorization', customerAuthorization)
+    .expect(200);
+  assert.equal(availability.body.available, 1);
+
+  const restaurant = await request(app)
+    .get(`/api/restaurants/${restaurantA.restaurantId}`)
+    .set('authorization', customerAuthorization)
+    .expect(200);
+  assert.equal(restaurant.body.name, 'Staff authorized edit');
+});
+
+test('public signup ignores requested staff role and restaurantId and issues a customer token', async () => {
+  const email = `public-${new mongoose.Types.ObjectId()}@example.com`;
+  const requestedRestaurantId = new mongoose.Types.ObjectId().toString();
+  const signup = await request(app)
+    .post('/api/auth/signup')
+    .send({
+      name: 'Public Signup',
+      email,
+      password: 'password123',
+      role: 'staff',
+      restaurantId: requestedRestaurantId
+    })
+    .expect(201);
+
+  const verified = await request(app)
+    .post('/api/auth/verify-otp')
+    .send({ email, otp: signup.body.otp })
+    .expect(200);
+  const claims = jwt.verify(verified.body.token, jwtSecret);
+  const user = await User.findById(claims.sub).lean();
+
+  assert.equal(claims.role, 'customer');
+  assert.equal(claims.restaurantId, authPartitionRestaurantId);
+  assert.equal(user.role, 'customer');
+  assert.equal(user.restaurantId.toString(), authPartitionRestaurantId);
+  assert.notEqual(user.restaurantId.toString(), requestedRestaurantId);
+});
+
+test('tenant-scoped staff login issues role and restaurantId from the stored account', async () => {
+  const { restaurantId } = await createRestaurantWithTable();
+  const email = `staff-${new mongoose.Types.ObjectId()}@example.com`;
+  const password = 'staff-password-123';
+  await User.create({
+    restaurantId,
+    name: 'Seeded Staff',
+    email,
+    passwordHash: await bcrypt.hash(password, 4),
+    role: 'staff',
+    isVerified: true
+  });
+
+  const result = await request(app)
+    .post('/api/auth/login')
+    .send({ email, password, restaurantId, role: 'customer' })
+    .expect(200);
+  const claims = jwt.verify(result.body.token, jwtSecret);
+
+  assert.equal(claims.role, 'staff');
+  assert.equal(claims.restaurantId, restaurantId);
 });

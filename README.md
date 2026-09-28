@@ -31,3 +31,7 @@ It stores a six-digit OTP in Redis under `otp:<email>` with the configured TTL. 
 ## Restaurant API
 
 Run `npm.cmd run seed --workspace=@seatspot/server` to add the local catalogue. All restaurant endpoints require `Authorization: Bearer <JWT>`. The API supports CRUD at `/api/restaurants`, live table counts at `GET /api/restaurants/:restaurantId/availability`, and nearby search at `GET /api/restaurants/nearby?latitude=12.9255&longitude=80.2201&radiusMeters=5000`. When `GOOGLE_MAPS_API_KEY` is configured, a search with no local matches queries Google Places Nearby Search.
+
+Restaurant search, get, and availability reads are available to authenticated users. Restaurant updates require staff credentials for that same restaurant. Restaurant creation and deletion are disabled until an admin provisioning workflow is added.
+
+Public signup always creates a customer in the configured consumer partition; it ignores requested roles and restaurant IDs. To provision staff, set `STAFF_NAME`, `STAFF_EMAIL`, `STAFF_PASSWORD`, and an existing `STAFF_RESTAURANT_ID` in the operator environment, then run `npm.cmd run seed:staff --workspace=@seatspot/server`. Staff login includes that restaurant ID in the login request; the issued role and restaurant ID come from the stored staff account, not the request.

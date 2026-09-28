@@ -32,7 +32,13 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    await this.users.create({ restaurantId: this.authPartitionRestaurantId, name: name.trim(), email: normalizedEmail, passwordHash });
+    await this.users.create({
+      restaurantId: this.authPartitionRestaurantId,
+      name: name.trim(),
+      email: normalizedEmail,
+      passwordHash,
+      role: 'customer'
+    });
     const otp = createOtp();
     await this.otpStore.save(normalizedEmail, otp);
     return { otp };
@@ -54,8 +60,11 @@ export class AuthService {
     return this.issueToken(user);
   }
 
-  async login({ email, password }) {
-    const user = await this.users.findOne({ restaurantId: this.authPartitionRestaurantId, email: normalizeEmail(email) }).select('+passwordHash');
+  async login({ email, password, restaurantId }) {
+    const user = await this.users.findOne({
+      restaurantId: restaurantId ?? this.authPartitionRestaurantId,
+      email: normalizeEmail(email)
+    }).select('+passwordHash');
     if (!user || !await bcrypt.compare(String(password ?? ''), user.passwordHash)) {
       throw Object.assign(new Error('Email or password is incorrect'), { status: 401 });
     }
