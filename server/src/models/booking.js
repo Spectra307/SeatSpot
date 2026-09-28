@@ -6,6 +6,7 @@ const bookingSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
   partySize: { type: Number, required: true, min: 1 },
   startsAt: { type: Date, required: true },
+  source: { type: String, enum: ['customer', 'walk-in', 'queue'], default: 'customer' },
   status: { type: String, enum: ['confirmed', 'cancelled', 'completed'], default: 'confirmed' }
 }, { timestamps: true });
 

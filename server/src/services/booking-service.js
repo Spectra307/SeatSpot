@@ -5,14 +5,16 @@ function createHttpError(message, status) {
 }
 
 export class BookingService {
-  constructor({ tables, bookings, restaurantId, mongoClient }) {
+  constructor({ tables, bookings, restaurantId, mongoClient, notificationService, socketRealtimeService }) {
     this.tables = tables;
     this.bookings = bookings;
     this.restaurantId = restaurantId;
     this.mongoClient = mongoClient;
+    this.notificationService = notificationService;
+    this.socketRealtimeService = socketRealtimeService;
   }
 
-  async reserveTable({ tableId, userId, partySize, startsAt }) {
+  async reserveTable({ tableId, userId, partySize, startsAt, source = 'customer' }) {
     const normalizedStartsAt = startsAt instanceof Date ? new Date(startsAt) : new Date(startsAt);
 
     if (!tableId || !userId || !Number.isInteger(partySize) || partySize < 1) {
@@ -72,6 +74,7 @@ export class BookingService {
               userId,
               partySize,
               startsAt: normalizedStartsAt,
+              source,
               status: 'confirmed'
             }],
             { session }
@@ -81,6 +84,7 @@ export class BookingService {
         booking = Array.isArray(created) ? created[0] : created;
       });
 
+      await this._publishBooking(booking, userId);
       return booking;
     } catch (error) {
       if (error?.code === 11000) {
@@ -90,5 +94,40 @@ export class BookingService {
     } finally {
       await session.endSession();
     }
+  }
+
+  async _publishBooking(booking, userId) {
+    try {
+      this.socketRealtimeService?.emitToUser(String(userId), 'booking:confirmed', {
+        bookingId: booking._id.toString(),
+        restaurantId: this.restaurantId.toString(),
+        tableId: booking.tableId.toString(),
+        status: booking.status
+      });
+    } catch {
+      // Realtime delivery must not affect a committed reservation.
+    }
+
+    try {
+      const rows = await this.tables.aggregate([
+        { $match: { restaurantId: this.restaurantId } },
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]);
+      const availability = { available: 0, reserved: 0, occupied: 0, unavailable: 0, total: 0 };
+      for (const row of rows) {
+        availability[row._id] = row.count;
+        availability.total += row.count;
+      }
+      this.socketRealtimeService?.broadcastAvailability(this.restaurantId.toString(), availability);
+    } catch {
+      // Availability publication is best-effort after the transaction commits.
+    }
+
+    await this.notificationService?.notifySafely({
+      type: 'booking-confirmed',
+      userId: String(userId),
+      restaurantId: this.restaurantId.toString(),
+      bookingId: booking._id.toString()
+    });
   }
 }

@@ -9,6 +9,7 @@ import { User } from './models/user.js';
 import { Booking } from './models/booking.js';
 import { AuthService } from './services/auth-service.js';
 import { LoginAttemptStore } from './services/login-attempt-store.js';
+import { NotificationService } from './services/notification-service.js';
 import { createBookingServiceFactory } from './services/booking-service-factory.js';
 import { DashboardService } from './services/dashboard-service.js';
 import { OtpStore } from './services/otp-store.js';
@@ -23,6 +24,8 @@ async function start() {
   const config = getConfig();
   await connectDatabase(config);
   const redis = await connectRedis(config.redisUrl);
+  const socketRealtimeService = new SocketRealtimeService({ jwtSecret: config.jwtSecret, restaurants: Restaurant });
+  const notificationService = new NotificationService();
   const authService = new AuthService({
     users: User,
     otpStore: new OtpStore(redis, config.otpTtlSeconds),
@@ -36,11 +39,15 @@ async function start() {
     restaurants: Restaurant,
     tables: Table,
     bookings: Booking,
-    mongoClient: mongoose.connection.getClient()
+    mongoClient: mongoose.connection.getClient(),
+    notificationService,
+    socketRealtimeService
   });
   const queueService = new QueueService(redis, {
     bookings: Booking,
-    bookingServiceFactory
+    bookingServiceFactory,
+    notificationService,
+    socketRealtimeService
   });
   const dashboardService = new DashboardService({
     tables: Table,
@@ -48,6 +55,7 @@ async function start() {
     queueService,
     bookingServiceFactory,
     mongoClient: mongoose.connection.getClient()
+    ,socketRealtimeService
   });
 
   const app = createApp({
@@ -61,7 +69,6 @@ async function start() {
     exposeOtp: config.env !== 'production'
   });
   const server = createServer(app);
-  const socketRealtimeService = new SocketRealtimeService({ jwtSecret: config.jwtSecret, restaurants: Restaurant });
   socketRealtimeService.attach(server);
 
   server.listen(config.port, () => {

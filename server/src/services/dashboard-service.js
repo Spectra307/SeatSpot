@@ -7,12 +7,13 @@ function createHttpError(message, status) {
 const OVERRIDABLE_STATUSES = new Set(['available', 'occupied', 'unavailable']);
 
 export class DashboardService {
-  constructor({ tables, bookings, queueService, bookingServiceFactory, mongoClient }) {
+  constructor({ tables, bookings, queueService, bookingServiceFactory, mongoClient, socketRealtimeService }) {
     this.tables = tables;
     this.bookings = bookings;
     this.queueService = queueService;
     this.bookingServiceFactory = bookingServiceFactory;
     this.mongoClient = mongoClient;
+    this.socketRealtimeService = socketRealtimeService;
   }
 
   async getTableGrid(restaurantId) {
@@ -73,9 +74,27 @@ export class DashboardService {
         ).lean();
         if (!updatedTable) throw createHttpError('Table status changed; retry the override', 409);
       });
+      if (updatedTable) await this._publishAvailability(restaurantId);
       return updatedTable;
     } finally {
       await session.endSession();
+    }
+  }
+
+  async _publishAvailability(restaurantId) {
+    try {
+      const rows = await this.tables.aggregate([
+        { $match: { restaurantId } },
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]);
+      const availability = { available: 0, reserved: 0, occupied: 0, unavailable: 0, total: 0 };
+      for (const row of rows) {
+        availability[row._id] = row.count;
+        availability.total += row.count;
+      }
+      this.socketRealtimeService?.broadcastAvailability(restaurantId.toString(), availability);
+    } catch {
+      // Availability publication is best-effort after a committed status override.
     }
   }
 }

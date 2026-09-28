@@ -7,11 +7,13 @@ function createHttpError(message, status) {
 }
 
 export class QueueService {
-  constructor(redis, { queueKeyPrefix = 'queue:', bookings, bookingServiceFactory, handoffLockMilliseconds = 30000 } = {}) {
+  constructor(redis, { queueKeyPrefix = 'queue:', bookings, bookingServiceFactory, notificationService, socketRealtimeService, handoffLockMilliseconds = 30000 } = {}) {
     this.redis = redis;
     this.queueKeyPrefix = queueKeyPrefix;
     this.bookings = bookings;
     this.bookingServiceFactory = bookingServiceFactory;
+    this.notificationService = notificationService;
+    this.socketRealtimeService = socketRealtimeService;
     this.handoffLockMilliseconds = handoffLockMilliseconds;
   }
 
@@ -214,9 +216,12 @@ export class QueueService {
           restaurantId,
           userId: customerId,
           status: 'confirmed'
-        }).select('_id').lean();
+        }).select('_id source tableId').lean();
         if (existingBooking) {
           await this.redis.lrem(queueKey, 0, customerId);
+          if (existingBooking.source === 'queue') {
+            await this._notifyPromotion({ restaurantId, customerId, booking: existingBooking });
+          }
           continue;
         }
 
@@ -225,7 +230,8 @@ export class QueueService {
           tableId,
           userId: customerId,
           partySize,
-          startsAt: startsAt ?? new Date(Date.now() + 60 * 1000)
+          startsAt: startsAt ?? new Date(Date.now() + 60 * 1000),
+          source: 'queue'
         });
 
         try {
@@ -233,6 +239,8 @@ export class QueueService {
         } catch {
           throw createHttpError('Booking committed but queue cleanup failed; retry the handoff', 503);
         }
+
+        await this._notifyPromotion({ restaurantId, customerId, booking });
 
         return {
           restaurantId: restaurantId.toString(),
@@ -253,5 +261,24 @@ export class QueueService {
         return 0
       `, 1, lockKey, lockToken).catch(() => undefined);
     }
+  }
+
+  async _notifyPromotion({ restaurantId, customerId, booking }) {
+    try {
+      this.socketRealtimeService?.emitToUser(String(customerId), 'queue:promoted', {
+        bookingId: booking._id.toString(),
+        restaurantId: restaurantId.toString(),
+        tableId: booking.tableId.toString()
+      });
+    } catch {
+      // Realtime delivery is best-effort after booking commit and queue removal.
+    }
+
+    await this.notificationService?.notifySafely({
+      type: 'queue-promoted',
+      userId: String(customerId),
+      restaurantId: restaurantId.toString(),
+      bookingId: booking._id.toString()
+    });
   }
 }

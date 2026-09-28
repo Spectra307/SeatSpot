@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { BookingService } from '../src/services/booking-service.js';
 import { Booking } from '../src/models/booking.js';
 import { Table } from '../src/models/table.js';
+import { NotificationService } from '../src/services/notification-service.js';
 
 const mongoUri = process.env.MONGO_URI
   ?? process.env.MONGODB_URI
@@ -21,7 +22,7 @@ after(async () => {
   }
 });
 
-async function createFixture({ capacity = 4, bookings = Booking } = {}) {
+async function createFixture({ capacity = 4, bookings = Booking, notificationService } = {}) {
   const restaurantId = new mongoose.Types.ObjectId();
   const table = await Table.create({
     restaurantId,
@@ -37,7 +38,8 @@ async function createFixture({ capacity = 4, bookings = Booking } = {}) {
       tables: Table,
       bookings,
       restaurantId,
-      mongoClient: mongoose.connection.getClient()
+      mongoClient: mongoose.connection.getClient(),
+      notificationService
     })
   };
 }
@@ -122,4 +124,29 @@ test('invalid reservation input rejects with HTTP 400', async () => {
     service.reserveTable(reservationRequest(table._id, { startsAt: 'not-a-date' })),
     (error) => error.status === 400
   );
+});
+
+test('throwing and hanging booking notifications never fail or undo a confirmed booking', async () => {
+  const providers = [
+    { send() { throw new Error('notification provider failed'); } },
+    { send() { return new Promise(() => {}); } }
+  ];
+
+  for (const provider of providers) {
+    const notificationService = new NotificationService({
+      provider,
+      logger: { info() {}, warn() {} },
+      timeoutMs: 20
+    });
+    const { table, service } = await createFixture({ notificationService });
+    const booking = await service.reserveTable({
+      tableId: table._id,
+      userId: new mongoose.Types.ObjectId(),
+      partySize: 2,
+      startsAt: new Date(Date.now() + 60 * 60 * 1000)
+    });
+
+    assert.equal(booking.status, 'confirmed');
+    assert.equal((await Table.findById(table._id).lean()).status, 'reserved');
+  }
 });

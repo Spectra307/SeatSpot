@@ -7,6 +7,7 @@ import { Restaurant } from '../src/models/restaurant.js';
 import { Table } from '../src/models/table.js';
 import { BookingService } from '../src/services/booking-service.js';
 import { createBookingServiceFactory } from '../src/services/booking-service-factory.js';
+import { NotificationService } from '../src/services/notification-service.js';
 import { QueueService } from '../src/services/queue-service.js';
 
 const mongoUri = process.env.MONGO_URI
@@ -192,4 +193,43 @@ test('Redis removal failure after commit is recovered on retry without a second 
   assert.equal(retried, null);
   assert.equal(await Booking.countDocuments({ restaurantId, userId, status: 'confirmed' }), 1);
   assert.deepEqual(await redis.lrange(queueKey, 0, -1), []);
+});
+
+test('throwing and hanging booking/promotion notifications never fail a queue handoff', async () => {
+  const providers = [
+    { send() { throw new Error('notification provider failed'); } },
+    { send() { return new Promise(() => {}); } }
+  ];
+
+  for (const provider of providers) {
+    const notificationService = new NotificationService({
+      provider,
+      logger: { info() {}, warn() {} },
+      timeoutMs: 20
+    });
+    const bookingServiceFactory = createBookingServiceFactory({
+      restaurants: Restaurant,
+      tables: Table,
+      bookings: Booking,
+      mongoClient: mongoose.connection.getClient(),
+      notificationService
+    });
+    const notifiedQueueService = new QueueService(redis, {
+      queueKeyPrefix: keyPrefix,
+      bookings: Booking,
+      bookingServiceFactory,
+      notificationService
+    });
+    const table = await createTable();
+    const userId = newUserId();
+    await notifiedQueueService.joinQueue({ restaurantId: restaurantId.toString(), userId });
+    const result = await notifiedQueueService.handoffNextCustomer({
+      restaurantId: restaurantId.toString(),
+      staffId: 'staff-a',
+      tableId: table._id.toString()
+    });
+
+    assert.equal(result.seatedUserId, userId);
+    assert.equal(await Booking.countDocuments({ restaurantId, userId, status: 'confirmed' }), 1);
+  }
 });
