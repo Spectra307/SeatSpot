@@ -17,8 +17,13 @@ class Users {
 }
 
 class OtpStore {
+  async allowRequest() { return true; }
   async save(_email, otp) { this.otp = otp; }
-  async consume() { const otp = this.otp; this.otp = undefined; return otp; }
+  async verify(_email, suppliedOtp) {
+    const matches = suppliedOtp === this.otp;
+    if (matches) this.otp = undefined;
+    return matches;
+  }
 }
 
 test('signup, OTP verification, and login issue valid JWTs', async () => {

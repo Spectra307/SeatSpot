@@ -8,6 +8,7 @@ import { connectRedis, disconnectRedis } from './config/redis.js';
 import { User } from './models/user.js';
 import { Booking } from './models/booking.js';
 import { AuthService } from './services/auth-service.js';
+import { LoginAttemptStore } from './services/login-attempt-store.js';
 import { createBookingServiceFactory } from './services/booking-service-factory.js';
 import { OtpStore } from './services/otp-store.js';
 import { Restaurant } from './models/restaurant.js';
@@ -24,6 +25,7 @@ async function start() {
   const authService = new AuthService({
     users: User,
     otpStore: new OtpStore(redis, config.otpTtlSeconds),
+    loginAttemptStore: new LoginAttemptStore(redis),
     jwtSecret: config.jwtSecret,
     jwtExpiresIn: config.jwtExpiresIn,
     authPartitionRestaurantId: config.authPartitionRestaurantId

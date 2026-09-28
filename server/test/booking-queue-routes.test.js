@@ -12,6 +12,7 @@ import { Table } from '../src/models/table.js';
 import { User } from '../src/models/user.js';
 import { AuthService } from '../src/services/auth-service.js';
 import { createBookingServiceFactory } from '../src/services/booking-service-factory.js';
+import { LoginAttemptStore } from '../src/services/login-attempt-store.js';
 import { OtpStore } from '../src/services/otp-store.js';
 import { QueueService } from '../src/services/queue-service.js';
 import { RestaurantService } from '../src/services/restaurant-service.js';
@@ -24,7 +25,9 @@ const redisUrl = process.env.REDIS_URL
   ?? `redis://:${encodeURIComponent(process.env.REDIS_PASSWORD ?? 'replace-with-a-strong-redis-password')}@127.0.0.1:6379`;
 const databaseName = `seatspot_http_tests_${process.pid}`;
 const queuePrefix = `seatspot:http-tests:${process.pid}:`;
+const loginKeyPrefix = `seatspot:http-login-tests:${process.pid}:`;
 const authPartitionRestaurantId = '000000000000000000000001';
+const testEmails = new Set();
 let redis;
 let app;
 
@@ -45,6 +48,12 @@ before(async () => {
   const authService = new AuthService({
     users: User,
     otpStore: new OtpStore(redis, 300),
+    loginAttemptStore: new LoginAttemptStore(redis, {
+      maxAttempts: 3,
+      windowSeconds: 60,
+      lockoutSeconds: 2,
+      keyPrefix: loginKeyPrefix
+    }),
     jwtSecret,
     jwtExpiresIn: '1h',
     authPartitionRestaurantId
@@ -63,11 +72,16 @@ before(async () => {
     jwtSecret,
     exposeOtp: true
   });
+  app.set('trust proxy', true);
 });
 
 after(async () => {
   if (redis?.status === 'ready') {
     const keys = await redis.keys(`${queuePrefix}*`);
+    keys.push(...await redis.keys(`${loginKeyPrefix}*`));
+    for (const email of testEmails) {
+      keys.push(`otp:code:${email}`, `otp:attempts:${email}`, `otp:requests:${email}`);
+    }
     if (keys.length) await redis.del(...keys);
     await redis.quit();
   }
@@ -337,4 +351,144 @@ test('tenant-scoped staff login issues role and restaurantId from the stored acc
 
   assert.equal(claims.role, 'staff');
   assert.equal(claims.restaurantId, restaurantId);
+});
+
+test('the sixth OTP guess is rejected after five failures, even when correct; resend is rate limited', async () => {
+  const email = `otp-attempts-${process.pid}-${new mongoose.Types.ObjectId()}@example.com`;
+  testEmails.add(email);
+  const signup = await request(app)
+    .post('/api/auth/signup')
+    .send({ name: 'OTP Test', email, password: 'password123' })
+    .expect(201);
+  const otp = signup.body.otp;
+  const wrongOtp = otp === '000000' ? '000001' : '000000';
+
+  const codeTtl = await redis.ttl(`otp:code:${email}`);
+  const attemptsTtl = await redis.ttl(`otp:attempts:${email}`);
+  assert.equal(attemptsTtl, codeTtl);
+
+  await request(app).post('/api/auth/verify-otp').send({ email, otp: '12' }).expect(400);
+  assert.equal(Number(await redis.get(`otp:attempts:${email}`)), 1);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await request(app).post('/api/auth/verify-otp').send({ email, otp: wrongOtp }).expect(400);
+  }
+  assert.equal(await redis.exists(`otp:code:${email}`), 0);
+  assert.equal(Number(await redis.get(`otp:attempts:${email}`)), 5);
+
+  await request(app).post('/api/auth/verify-otp').send({ email, otp }).expect(400);
+
+  const resent = await request(app).post('/api/auth/request-otp').send({ email }).expect(200);
+  assert.ok(resent.body.otp);
+  await request(app).post('/api/auth/verify-otp').send({ email, otp: resent.body.otp }).expect(200);
+
+  const rateLimitedEmail = `otp-rate-${process.pid}-${new mongoose.Types.ObjectId()}@example.com`;
+  testEmails.add(rateLimitedEmail);
+  await request(app)
+    .post('/api/auth/signup')
+    .send({ name: 'OTP Rate Test', email: rateLimitedEmail, password: 'password123' })
+    .expect(201);
+  await request(app).post('/api/auth/request-otp').send({ email: rateLimitedEmail }).expect(200);
+  await request(app).post('/api/auth/request-otp').send({ email: rateLimitedEmail }).expect(200);
+  await request(app).post('/api/auth/request-otp').send({ email: rateLimitedEmail }).expect(429);
+});
+
+test('unknown email and wrong password have the same response; per-email and per-IP lockouts expire', async () => {
+  const email = `login-email-lock-${process.pid}-${new mongoose.Types.ObjectId()}@example.com`;
+  const emailPassword = 'correct-password-123';
+  testEmails.add(email);
+  await User.create({
+    restaurantId: authPartitionRestaurantId,
+    name: 'Login Lock Test',
+    email,
+    passwordHash: await bcrypt.hash(emailPassword, 12),
+    role: 'customer',
+    isVerified: true
+  });
+
+  const unknown = await request(app)
+    .post('/api/auth/login')
+    .set('x-forwarded-for', '198.51.100.10')
+    .send({ email: `missing-${process.pid}@example.com`, password: 'wrong-password' });
+  const wrongPassword = await request(app)
+    .post('/api/auth/login')
+    .set('x-forwarded-for', '198.51.100.11')
+    .send({ email, password: 'wrong-password' });
+  const unverifiedEmail = `unverified-${process.pid}-${new mongoose.Types.ObjectId()}@example.com`;
+  testEmails.add(unverifiedEmail);
+  await User.create({
+    restaurantId: authPartitionRestaurantId,
+    name: 'Unverified Login Test',
+    email: unverifiedEmail,
+    passwordHash: await bcrypt.hash(emailPassword, 12),
+    role: 'customer',
+    isVerified: false
+  });
+  const unverified = await request(app)
+    .post('/api/auth/login')
+    .set('x-forwarded-for', '198.51.100.12')
+    .send({ email: unverifiedEmail, password: emailPassword });
+  assert.equal(unknown.status, 401);
+  assert.equal(wrongPassword.status, 401);
+  assert.equal(unverified.status, 401);
+  assert.deepEqual(unknown.body, wrongPassword.body);
+  assert.deepEqual(unknown.body, unverified.body);
+
+  const emailLockEmail = `email-lock-${process.pid}-${new mongoose.Types.ObjectId()}@example.com`;
+  testEmails.add(emailLockEmail);
+  await User.create({
+    restaurantId: authPartitionRestaurantId,
+    name: 'Email Lock Test',
+    email: emailLockEmail,
+    passwordHash: await bcrypt.hash(emailPassword, 12),
+    role: 'customer',
+    isVerified: true
+  });
+  for (const ip of ['198.51.100.20', '198.51.100.21', '198.51.100.22']) {
+    await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', ip)
+      .send({ email: emailLockEmail, password: 'wrong-password' })
+      .expect(401);
+  }
+  await request(app)
+    .post('/api/auth/login')
+    .set('x-forwarded-for', '198.51.100.23')
+    .send({ email: emailLockEmail, password: emailPassword })
+    .expect(401);
+  await new Promise((resolve) => setTimeout(resolve, 2100));
+  await request(app)
+    .post('/api/auth/login')
+    .set('x-forwarded-for', '198.51.100.23')
+    .send({ email: emailLockEmail, password: emailPassword })
+    .expect(200);
+
+  const ipLockEmail = `login-ip-lock-${process.pid}-${new mongoose.Types.ObjectId()}@example.com`;
+  testEmails.add(ipLockEmail);
+  await User.create({
+    restaurantId: authPartitionRestaurantId,
+    name: 'IP Lock Test',
+    email: ipLockEmail,
+    passwordHash: await bcrypt.hash(emailPassword, 12),
+    role: 'customer',
+    isVerified: true
+  });
+  for (let failure = 0; failure < 3; failure += 1) {
+    await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '198.51.100.30')
+      .send({ email: `unknown-${failure}-${process.pid}@example.com`, password: 'wrong-password' })
+      .expect(401);
+  }
+  await request(app)
+    .post('/api/auth/login')
+    .set('x-forwarded-for', '198.51.100.30')
+    .send({ email: ipLockEmail, password: emailPassword })
+    .expect(401);
+  await new Promise((resolve) => setTimeout(resolve, 2100));
+  await request(app)
+    .post('/api/auth/login')
+    .set('x-forwarded-for', '198.51.100.30')
+    .send({ email: ipLockEmail, password: emailPassword })
+    .expect(200);
 });
