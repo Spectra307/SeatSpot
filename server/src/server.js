@@ -47,7 +47,7 @@ async function start() {
     exposeOtp: config.env !== 'production'
   });
   const server = createServer(app);
-  const socketRealtimeService = new SocketRealtimeService({ jwtSecret: config.jwtSecret });
+  const socketRealtimeService = new SocketRealtimeService({ jwtSecret: config.jwtSecret, restaurants: Restaurant });
   socketRealtimeService.attach(server);
 
   server.listen(config.port, () => {

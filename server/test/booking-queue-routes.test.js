@@ -51,9 +51,9 @@ after(async () => {
   }
 });
 
-function customerToken() {
+function customerToken(userId = new mongoose.Types.ObjectId().toString()) {
   return jwt.sign({
-    sub: new mongoose.Types.ObjectId().toString(),
+    sub: userId,
     role: 'customer',
     restaurantId: '000000000000000000000001'
   }, jwtSecret);
@@ -104,15 +104,19 @@ test('booking and queue endpoints require a token and unknown restaurants return
 
 test('HTTP booking returns 201 and enforces taken, over-capacity, and invalid-input contracts', async () => {
   const { restaurantId, table } = await createRestaurantWithTable();
-  const authorization = `Bearer ${customerToken()}`;
+  const userAId = new mongoose.Types.ObjectId().toString();
+  const userBId = new mongoose.Types.ObjectId().toString();
+  const authorization = `Bearer ${customerToken(userAId)}`;
   const bookingPath = `/api/restaurants/${restaurantId}/bookings`;
 
   const created = await request(app)
     .post(bookingPath)
     .set('authorization', authorization)
-    .send(bookingBody(table._id))
+    .send(bookingBody(table._id, { userId: userBId }))
     .expect(201);
   assert.equal(created.body.status, 'confirmed');
+  assert.equal(created.body.userId, userAId);
+  assert.equal(await Booking.countDocuments({ userId: userBId }), 0);
 
   await request(app)
     .post(bookingPath)
@@ -150,12 +154,26 @@ test('two concurrent HTTP bookings for one table produce exactly one 201 and one
 
 test('customers can join and leave a queue over HTTP', async () => {
   const { restaurantId } = await createRestaurantWithTable();
-  const authorization = `Bearer ${customerToken()}`;
+  const userAId = new mongoose.Types.ObjectId().toString();
+  const userBId = new mongoose.Types.ObjectId().toString();
+  const authorization = `Bearer ${customerToken(userAId)}`;
   const path = `/api/restaurants/${restaurantId}/queue`;
 
-  const joined = await request(app).post(path).set('authorization', authorization).send({}).expect(201);
+  const joined = await request(app)
+    .post(path)
+    .set('authorization', authorization)
+    .send({ userId: userBId })
+    .expect(201);
   assert.equal(joined.body.position, 1);
   assert.equal(joined.body.alreadyInQueue, false);
+  assert.equal(joined.body.userId, userAId);
+
+  const otherUser = await request(app)
+    .post(path)
+    .set('authorization', `Bearer ${customerToken(userBId)}`)
+    .send({})
+    .expect(201);
+  assert.equal(otherUser.body.userId, userBId);
 
   const position = await request(app)
     .get(`${path}/position`)
@@ -163,7 +181,23 @@ test('customers can join and leave a queue over HTTP', async () => {
     .expect(200);
   assert.equal(position.body.position, 1);
 
-  const left = await request(app).delete(path).set('authorization', authorization).expect(200);
+  const left = await request(app)
+    .delete(path)
+    .set('authorization', authorization)
+    .send({ userId: userBId })
+    .expect(200);
   assert.equal(left.body.removed, 1);
-  assert.equal(left.body.queueLength, 0);
+  assert.equal(left.body.queueLength, 1);
+
+  const otherUserPosition = await request(app)
+    .get(`${path}/position?userId=${userAId}`)
+    .set('authorization', `Bearer ${customerToken(userBId)}`)
+    .expect(200);
+  assert.equal(otherUserPosition.body.position, 1);
+
+  await request(app)
+    .delete(path)
+    .set('authorization', authorization)
+    .send({ userId: userBId })
+    .expect(404);
 });
