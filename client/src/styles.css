@@ -1,0 +1,105 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+@import 'tailwindcss';
+
+:root {
+  font-family: 'DM Sans', sans-serif;
+  color: #1e2b28;
+  background: #f4f7f5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --background: #f8faf9;
+  --foreground: #1e2b28;
+  --card: #ffffff;
+  --card-foreground: #1e2b28;
+  --primary: #087f70;
+  --primary-foreground: #ffffff;
+  --secondary: #e9f2ef;
+  --secondary-foreground: #28534b;
+  --muted: #eef2f0;
+  --muted-foreground: #71807a;
+  --accent: #e7f2ef;
+  --destructive: #c43c3c;
+  --border: #dfe7e3;
+  --input: #d9e2de;
+  --ring: #0a8c7a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--background); }
+button, input { font: inherit; }
+a { color: inherit; }
+.font-display { font-family: 'Manrope', sans-serif; }
+
+.auth-screen { min-height: 100vh; display: grid; place-items: center; padding: 32px; background: radial-gradient(ellipse at 85% 7%, #e4eeea 0, transparent 27%), #f4f7f5; }
+.auth-frame { display: grid; grid-template-columns: minmax(390px, .95fr) minmax(460px, 1.05fr); width: min(1120px, 100%); min-height: min(720px, calc(100vh - 64px)); overflow: hidden; border: 1px solid #e0e8e3; border-radius: 14px; background: white; box-shadow: 0 26px 90px #24463a16; }
+.auth-aside { display: flex; flex-direction: column; justify-content: space-between; padding: 36px; color: #f5fbf8; background: #153d35; }
+.auth-aside-content { width: min(390px, 100%); margin: auto; padding: 50px 0; }
+.aside-kicker { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 20px; color: #b3cbc2; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #67d9ae; box-shadow: 0 0 0 4px #67d9ae20; }
+.auth-aside h1 { margin: 0; font: 800 44px/1.12 'Manrope', sans-serif; letter-spacing: 0; }
+.auth-aside-content > p { max-width: 330px; margin: 18px 0 34px; color: #b8ccc5; font-size: 15px; line-height: 1.7; }
+.service-preview { padding: 21px; border: 1px solid #ffffff1c; border-radius: 9px; background: #ffffff09; }
+.preview-label { margin-bottom: 7px; color: #a7c0b7; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.preview-title { font: 700 17px 'Manrope', sans-serif; }
+.preview-count { color: #b4f2d4; font: 800 25px 'Manrope', sans-serif; }
+.preview-count span { color: #a8c5ba; font: 500 12px 'DM Sans', sans-serif; }
+.preview-tables { display: grid; grid-template-columns: repeat(8, 1fr); gap: 7px; margin: 24px 0 18px; }
+.preview-tables i { height: 20px; border-radius: 4px; background: #58736a; }
+.preview-tables i.is-open { background: #5ec99a; }
+.preview-foot { color: #9fbab0; font-size: 11px; }
+.preview-foot span:first-child { display: inline-flex; align-items: center; gap: 5px; }
+.auth-aside-foot { display: flex; justify-content: space-between; gap: 18px; color: #86a99c; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.auth-main { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 56px; }
+.auth-card { width: min(390px, 100%); }
+.auth-icon { display: grid; width: 42px; height: 42px; place-items: center; margin-bottom: 28px; border: 1px solid #d7e7e1; border-radius: 9px; color: var(--primary); background: #f2f8f5; }
+.eyebrow { color: #087f70; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.input-icon-wrap, .password-wrap { position: relative; display: flex; align-items: center; }
+.input-icon-wrap > svg { position: absolute; left: 12px; z-index: 1; color: #84928c; }
+.input-icon-wrap input { padding-left: 38px; }
+.password-wrap input { padding-right: 45px; }
+.password-wrap button { position: absolute; right: 0; color: #728079; }
+.otp-input { height: 56px; text-align: center; font: 700 23px 'Manrope', sans-serif; letter-spacing: .34em; }
+.dev-code { margin: -5px 0 0; color: #75847e; font-size: 12px; }
+.dev-code strong { margin-left: 5px; color: #087f70; font-size: 14px; letter-spacing: .12em; }
+.resend-link { justify-self: start; padding: 0; border: 0; color: #087f70; background: none; font-size: 13px; font-weight: 600; cursor: pointer; }
+.resend-link:disabled { opacity: .5; cursor: not-allowed; }
+.auth-switch { display: flex; justify-content: center; gap: 6px; margin-top: 26px; color: #77847e; font-size: 13px; }
+.auth-switch button { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; color: #087f70; background: none; font-weight: 700; cursor: pointer; }
+.auth-legal { width: min(390px, 100%); margin: 22px 0 0; color: #8a9690; font-size: 11px; text-align: center; }
+.auth-legal a { color: #52675f; text-decoration: underline; text-underline-offset: 2px; }
+.auth-mobile-brand { display: none; }
+
+@media (max-width: 820px) {
+  .auth-screen { padding: 16px; }
+  .auth-frame { display: block; min-height: auto; width: min(500px, 100%); }
+  .auth-aside { display: none; }
+  .auth-main { padding: 26px 24px 30px; }
+  .auth-mobile-brand { display: block; align-self: flex-start; margin: 0 0 30px; }
+}
+
+@media (max-width: 420px) {
+  .auth-screen { padding: 0; background: white; }
+  .auth-frame { min-height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
+  .auth-main { min-height: 100vh; justify-content: flex-start; padding: 25px 22px; }
+  .auth-mobile-brand { margin-bottom: 58px; }
+  .auth-card { margin: 0 auto; }
+}
