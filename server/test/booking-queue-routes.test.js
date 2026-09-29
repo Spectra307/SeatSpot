@@ -49,6 +49,7 @@ before(async () => {
   const dashboardService = new DashboardService({
     tables: Table,
     bookings: Booking,
+    users: User,
     queueService,
     bookingServiceFactory,
     mongoClient: mongoose.connection.getClient()
@@ -554,6 +555,26 @@ test('walk-in seating and customer booking race for one table with exactly one w
 
   assert.deepEqual(results.map((result) => result.status).sort(), [201, 409]);
   assert.equal(await Booking.countDocuments({ tableId: table._id, status: 'confirmed' }), 1);
+});
+
+test('walk-in request cannot select its booking user or restaurant tenant', async () => {
+  const { restaurantId, table } = await createRestaurantWithTable();
+  const spoofedUserId = new mongoose.Types.ObjectId();
+  const spoofedRestaurantId = new mongoose.Types.ObjectId();
+
+  await request(app)
+    .post(`/api/restaurants/${restaurantId}/dashboard/tables/${table._id}/walk-in`)
+    .set('authorization', `Bearer ${staffToken('staff-a', restaurantId)}`)
+    .send({ guestName: 'Counter Guest', userId: spoofedUserId, restaurantId: spoofedRestaurantId, partySize: 2 })
+    .expect(201);
+
+  const booking = await Booking.findOne({ tableId: table._id, source: 'walk-in' }).lean();
+  const guest = await User.findById(booking.userId).lean();
+  assert.notEqual(booking.userId.toString(), spoofedUserId.toString());
+  assert.equal(booking.restaurantId.toString(), restaurantId);
+  assert.equal(guest.restaurantId.toString(), restaurantId);
+  assert.equal(guest.role, 'customer');
+  assert.equal(guest.name, 'Counter Guest');
 });
 
 test('dashboard cannot override a table with a confirmed booking to available', async () => {

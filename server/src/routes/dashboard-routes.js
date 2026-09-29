@@ -28,7 +28,7 @@ export function createDashboardRouter({ dashboardService, restaurants, jwtSecret
       const booking = await dashboardService.seatWalkIn({
         restaurantId,
         tableId: request.params.tableId,
-        userId: request.body?.userId,
+        guestName: request.body?.guestName,
         partySize: request.body?.partySize,
         startsAt: request.body?.startsAt
       });

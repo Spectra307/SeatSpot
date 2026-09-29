@@ -25,6 +25,7 @@ export class QueueService {
     if (!this.socketRealtimeService) return;
     try {
       const queue = await this.redis.lrange(this._queueKey(restaurantId), 0, -1);
+      this.socketRealtimeService.broadcastQueueUpdate?.(String(restaurantId), { queue, queueLength: queue.length });
       queue.forEach((userId, index) => {
         this.socketRealtimeService.emitToUser(String(userId), 'queue:position', {
           restaurantId: String(restaurantId),

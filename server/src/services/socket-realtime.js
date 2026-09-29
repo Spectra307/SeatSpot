@@ -192,10 +192,12 @@ export class SocketRealtimeService {
 
   broadcastAvailability(restaurantId, payload) {
     if (!this.io || !restaurantId) return;
-    this.io.to(`availability:${restaurantId}`).emit('availability:update', {
+    const event = {
       restaurantId: String(restaurantId),
       payload: availabilitySummary(payload)
-    });
+    };
+    this.io.to(`availability:${restaurantId}`).emit('availability:update', event);
+    this.io.to(`staff:${restaurantId}`).emit('availability:update', event);
   }
 
   broadcastQueueUpdate(restaurantId, payload) {

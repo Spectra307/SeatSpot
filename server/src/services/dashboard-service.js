@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import bcrypt from 'bcryptjs';
+
 function createHttpError(message, status) {
   const error = new Error(message);
   error.status = status;
@@ -7,9 +10,10 @@ function createHttpError(message, status) {
 const OVERRIDABLE_STATUSES = new Set(['available', 'occupied', 'unavailable']);
 
 export class DashboardService {
-  constructor({ tables, bookings, queueService, bookingServiceFactory, mongoClient, socketRealtimeService }) {
+  constructor({ tables, bookings, users, queueService, bookingServiceFactory, mongoClient, socketRealtimeService }) {
     this.tables = tables;
     this.bookings = bookings;
+    this.users = users;
     this.queueService = queueService;
     this.bookingServiceFactory = bookingServiceFactory;
     this.mongoClient = mongoClient;
@@ -24,14 +28,29 @@ export class DashboardService {
     return this.queueService.getQueueState({ restaurantId: restaurantId.toString() });
   }
 
-  async seatWalkIn({ restaurantId, tableId, userId, partySize, startsAt }) {
-    const bookingService = await this.bookingServiceFactory(restaurantId.toString());
-    return bookingService.reserveTable({
-      tableId,
-      userId,
-      partySize,
-      startsAt: startsAt ?? new Date(Date.now() + 60 * 1000)
+  async seatWalkIn({ restaurantId, tableId, guestName, partySize, startsAt }) {
+    if (!this.users) throw createHttpError('Walk-in customer provisioning is unavailable', 503);
+    const walkInUser = await this.users.create({
+      restaurantId,
+      name: guestName?.trim() || 'Walk-in Guest',
+      email: `walk-in-${randomUUID()}@seatspot.local`,
+      passwordHash: await bcrypt.hash(randomUUID(), 12),
+      role: 'customer',
+      isVerified: false
     });
+    const bookingService = await this.bookingServiceFactory(restaurantId.toString());
+    try {
+      return await bookingService.reserveTable({
+        tableId,
+        userId: walkInUser._id,
+        partySize,
+        startsAt: startsAt ?? new Date(Date.now() + 60 * 1000),
+        source: 'walk-in'
+      });
+    } catch (error) {
+      await this.users.deleteOne({ _id: walkInUser._id, restaurantId }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async handoffNextCustomer({ restaurantId, staffId, tableId, partySize, startsAt }) {

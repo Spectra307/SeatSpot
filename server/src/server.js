@@ -52,6 +52,7 @@ async function start() {
   const dashboardService = new DashboardService({
     tables: Table,
     bookings: Booking,
+    users: User,
     queueService,
     bookingServiceFactory,
     mongoClient: mongoose.connection.getClient()
