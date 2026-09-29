@@ -21,6 +21,22 @@ export class QueueService {
     return `${this.queueKeyPrefix}${restaurantId}`;
   }
 
+  async _publishPositions(restaurantId) {
+    if (!this.socketRealtimeService) return;
+    try {
+      const queue = await this.redis.lrange(this._queueKey(restaurantId), 0, -1);
+      queue.forEach((userId, index) => {
+        this.socketRealtimeService.emitToUser(String(userId), 'queue:position', {
+          restaurantId: String(restaurantId),
+          position: index + 1,
+          queueLength: queue.length
+        });
+      });
+    } catch {
+      // Queue persistence succeeds independently of best-effort position events.
+    }
+  }
+
   async joinQueue({ restaurantId, userId }) {
     if (!restaurantId || !userId) {
       throw createHttpError('restaurantId and userId are required', 400);
@@ -39,6 +55,8 @@ export class QueueService {
           return { length, 0, length }
         `, 1, queueKey, userId);
 
+        await this._publishPositions(restaurantId);
+
         return {
           restaurantId,
           userId,
@@ -50,6 +68,7 @@ export class QueueService {
 
       const existingPosition = await this.redis.lpos(queueKey, userId);
       if (existingPosition !== null) {
+        await this._publishPositions(restaurantId);
         return {
           restaurantId,
           userId,
@@ -60,6 +79,7 @@ export class QueueService {
       }
 
       await this.redis.rpush(queueKey, userId);
+      await this._publishPositions(restaurantId);
       const position = await this.getQueuePosition({ restaurantId, userId });
 
       return {
@@ -87,6 +107,7 @@ export class QueueService {
       if (removedCount === 0) {
         throw createHttpError('User is not in the queue', 404);
       }
+      await this._publishPositions(restaurantId);
 
       return {
         restaurantId,
@@ -219,6 +240,7 @@ export class QueueService {
         }).select('_id source tableId').lean();
         if (existingBooking) {
           await this.redis.lrem(queueKey, 0, customerId);
+          await this._publishPositions(restaurantId);
           if (existingBooking.source === 'queue') {
             await this._notifyPromotion({ restaurantId, customerId, booking: existingBooking });
           }
@@ -236,6 +258,7 @@ export class QueueService {
 
         try {
           await this.redis.lrem(queueKey, 1, customerId);
+          await this._publishPositions(restaurantId);
         } catch {
           throw createHttpError('Booking committed but queue cleanup failed; retry the handoff', 503);
         }

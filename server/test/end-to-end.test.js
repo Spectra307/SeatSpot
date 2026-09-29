@@ -229,9 +229,11 @@ test('real app E2E: signup/search/book/availability and full-restaurant queue ha
     coordinates: [80.3, 12.9]
   });
   const staffTokenForFull = await createStaff(fullRestaurant.restaurant.restaurantId, 'e2e-full-restaurant');
+  const initialQueuePosition = receive(socket, 'queue:position');
   const queued = await callApi('POST', `/api/restaurants/${fullRestaurant.restaurantId}/queue`, { token: customerToken });
   assert.equal(queued.status, 201);
   assert.equal(queued.body.position, 1);
+  assert.deepEqual(await initialQueuePosition, { restaurantId: fullRestaurant.restaurantId, position: 1, queueLength: 1 });
 
   const promotion = receive(socket, 'queue:promoted');
   const freed = await callApi('PATCH', `/api/restaurants/${fullRestaurant.restaurantId}/dashboard/tables/${fullRestaurant.table._id}/status`, {

@@ -71,6 +71,13 @@ export class RestaurantService {
     return availabilityByStatus(rows);
   }
 
+  async tableGrid(restaurantId) {
+    return this.tables.find({ restaurantId: new mongoose.Types.ObjectId(restaurantId) })
+      .select('_id restaurantId label capacity status')
+      .sort({ label: 1 })
+      .lean();
+  }
+
   async nearby({ latitude, longitude, radiusMeters = 5000 }) {
     latitude = Number(latitude);
     longitude = Number(longitude);

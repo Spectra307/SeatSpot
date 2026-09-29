@@ -60,3 +60,23 @@ test('twenty concurrent real Redis joins retain every user in order', async () =
   assert.deepEqual(results.map((result) => result.position), users.map((_, index) => index + 1));
   assert.equal(results.every((result) => !result.alreadyInQueue), true);
 });
+
+test('real Redis queue mutations publish positions only to each queued user', async () => {
+  const events = [];
+  const realtimeService = {
+    emitToUser(userId, event, payload) { events.push({ userId, event, payload }); }
+  };
+  const realtimeQueue = new QueueService(redis, { queueKeyPrefix, socketRealtimeService: realtimeService });
+  await realtimeQueue.joinQueue({ restaurantId, userId: 'private-a' });
+  await realtimeQueue.joinQueue({ restaurantId, userId: 'private-b' });
+
+  const positionsForA = events.filter((entry) => entry.userId === 'private-a' && entry.event === 'queue:position');
+  const positionsForB = events.filter((entry) => entry.userId === 'private-b' && entry.event === 'queue:position');
+  assert.deepEqual(positionsForA.at(-1).payload, { restaurantId, position: 1, queueLength: 2 });
+  assert.deepEqual(positionsForB.at(-1).payload, { restaurantId, position: 2, queueLength: 2 });
+
+  await realtimeQueue.leaveQueue({ restaurantId, userId: 'private-a' });
+  const updatedB = events.filter((entry) => entry.userId === 'private-b' && entry.event === 'queue:position').at(-1);
+  assert.deepEqual(updatedB.payload, { restaurantId, position: 1, queueLength: 1 });
+  assert.equal(events.every((entry) => entry.userId === 'private-a' || entry.userId === 'private-b'), true);
+});

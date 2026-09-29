@@ -309,6 +309,15 @@ test('restaurant read access is authenticated while patching is limited to staff
     .set('authorization', customerAuthorization)
     .expect(200);
   assert.equal(restaurant.body.name, 'Staff authorized edit');
+
+  const grid = await request(app)
+    .get(`/api/restaurants/${restaurantA.restaurantId}/tables`)
+    .set('authorization', customerAuthorization)
+    .expect(200);
+  assert.equal(grid.body.tables.length, 1);
+  assert.equal(grid.body.tables[0]._id, restaurantA.table._id.toString());
+  assert.equal(grid.body.tables[0].capacity, 4);
+  assert.deepEqual(Object.keys(grid.body.tables[0]).sort(), ['_id', 'capacity', 'label', 'restaurantId', 'status']);
 });
 
 test('public signup ignores requested staff role and restaurantId and issues a customer token', async () => {
