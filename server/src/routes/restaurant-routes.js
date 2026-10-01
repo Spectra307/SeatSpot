@@ -21,10 +21,6 @@ export function createRestaurantRouter(restaurantService, jwtSecret) {
     try { response.json({ tables: await restaurantService.tableGrid(request.params.restaurantId) }); }
     catch (error) { next(error); }
   });
-  router.get('/:restaurantId/tables', async (request, response, next) => {
-    try { response.json({ tables: await restaurantService.tableGrid(request.params.restaurantId) }); }
-    catch (error) { next(error); }
-  });
   router.get('/:restaurantId', async (request, response, next) => {
     try { response.json(await restaurantService.get(request.params.restaurantId)); }
     catch (error) { next(error); }

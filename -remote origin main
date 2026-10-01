@@ -1,0 +1,16 @@
+[33mcommit d4d8afd6e58c6a2ca63fc7fa9c047b2e9fb81b54[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Sridhar <sridhar@example.com>
+Date:   Tue Sep 29 21:12:41 2026 +0530
+
+    feat(client): add live staff operations dashboard
+
+ client/src/app.jsx                        |   2 [32m+[m
+ client/src/pages/staff-dashboard-page.jsx | 207 [32m++++++++++++++++++++++++++++++[m
+ client/src/styles.css                     |  79 [32m++++++++++++[m
+ server/src/routes/dashboard-routes.js     |   2 [32m+[m[31m-[m
+ server/src/server.js                      |   1 [32m+[m
+ server/src/services/dashboard-service.js  |  35 [32m+++[m[31m--[m
+ server/src/services/queue-service.js      |   1 [32m+[m
+ server/src/services/socket-realtime.js    |   6 [32m+[m[31m-[m
+ server/test/booking-queue-routes.test.js  |  21 [32m+++[m
+ 9 files changed, 343 insertions(+), 11 deletions(-)

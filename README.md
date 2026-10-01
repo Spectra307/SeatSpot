@@ -32,6 +32,8 @@ It stores a six-digit OTP in Redis under `otp:<email>` with the configured TTL. 
 
 Run `npm.cmd run seed --workspace=@seatspot/server` to add the local catalogue. All restaurant endpoints require `Authorization: Bearer <JWT>`. The API supports CRUD at `/api/restaurants`, live table counts at `GET /api/restaurants/:restaurantId/availability`, and nearby search at `GET /api/restaurants/nearby?latitude=12.9255&longitude=80.2201&radiusMeters=5000`. When `GOOGLE_MAPS_API_KEY` is configured, a search with no local matches queries Google Places Nearby Search.
 
+Nearby search accepts `radiusMeters` (1-50000), `sort` (`distance` or `availability`), `openOnly` (keep only restaurants with a free table), and `limit` (1-100, default 24). Each result carries `distanceMeters` from the search point, `availability` counts, and a `source` of `catalogue` or `places`; Google results report haversine distances and no availability. Availability is counted with one grouped query per search instead of one query per restaurant.
+
 Restaurant search, get, and availability reads are available to authenticated users. Restaurant updates require staff credentials for that same restaurant. Restaurant creation and deletion are disabled until an admin provisioning workflow is added.
 
 Public signup always creates a customer in the configured consumer partition; it ignores requested roles and restaurant IDs. To provision staff, set `STAFF_NAME`, `STAFF_EMAIL`, `STAFF_PASSWORD`, and an existing `STAFF_RESTAURANT_ID` in the operator environment, then run `npm.cmd run seed:staff --workspace=@seatspot/server`. Staff login includes that restaurant ID in the login request; the issued role and restaurant ID come from the stored staff account, not the request.
@@ -41,3 +43,5 @@ For a local demo, set `DEMO_STAFF_PASSWORD` in `.env` and run `npm.cmd run seed:
 ## Web Client
 
 Install the workspace dependencies with `npm.cmd install`. Start the API in one terminal with `npm.cmd run dev`, then start the React/Vite client in another with `npm.cmd run dev --workspace=@seatspot/client`. Open the URL printed by Vite (normally `http://localhost:5173`). The development server proxies `/api` and `/socket.io` to the API on port 4000.
+
+The restaurant directory offers a search radius, closest-first or most-tables-open sorting, and an open-tables-only filter. It subscribes to the `availability:<restaurantId>` socket rooms for the listed restaurants, so table counts and the header indicator update without a refresh.

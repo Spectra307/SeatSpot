@@ -194,6 +194,11 @@ test('real app E2E: signup/search/book/availability and full-restaurant queue ha
   const search = await callApi('GET', '/api/restaurants/nearby?latitude=12.9255&longitude=80.2201', { token: customerToken });
   assert.equal(search.status, 200);
   assert.ok(search.body.restaurants.some((restaurant) => restaurant.restaurantId === firstRestaurant.restaurantId));
+  const nearbyHit = search.body.restaurants.find((restaurant) => restaurant.restaurantId === firstRestaurant.restaurantId);
+  assert.equal(nearbyHit.source, 'catalogue');
+  assert.equal(nearbyHit.availability.available, 1);
+  assert.equal(nearbyHit.availability.total, 1);
+  assert.ok(nearbyHit.distanceMeters >= 0, 'nearby results report the distance from the search point');
 
   const booking = await callApi('POST', `/api/restaurants/${firstRestaurant.restaurantId}/bookings`, {
     token: customerToken,
