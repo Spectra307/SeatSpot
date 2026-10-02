@@ -148,15 +148,18 @@ export class RestaurantService {
 
     const ranked = requestedSort === 'availability' || openOnlyRequested;
     const candidateLimit = Math.min(ranked ? limit * 4 : limit, MAX_NEARBY_CANDIDATES);
-    const local = await this.restaurants.find({
-      location: {
-        $near: {
-          $geometry: { type: 'Point', coordinates: [longitude, latitude] },
-          $maxDistance: radiusMeters,
-          distanceField: 'distanceMeters'
+    const local = await this.restaurants.aggregate([
+      {
+        $geoNear: {
+          near: { type: 'Point', coordinates: [longitude, latitude] },
+          key: 'location',
+          distanceField: 'distanceMeters',
+          maxDistance: radiusMeters,
+          spherical: true
         }
-      }
-    }).limit(candidateLimit).lean();
+      },
+      { $limit: candidateLimit }
+    ]);
 
     if (local.length || !this.mapsClient.enabled) {
       const countsByRestaurant = await this.availabilityForMany(local.map((restaurant) => restaurant.restaurantId));

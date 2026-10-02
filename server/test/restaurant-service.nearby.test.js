@@ -6,24 +6,13 @@ import { RestaurantService } from '../src/services/restaurant-service.js';
 const objectId = () => new mongoose.Types.ObjectId();
 
 function fakeRestaurants(documents) {
-  const queries = [];
+  const pipelines = [];
   return {
-    queries,
-    find(filter) {
-      const query = {
-        filter,
-        limitValue: undefined,
-        limit(value) {
-          this.limitValue = value;
-          return this;
-        },
-        async lean() {
-          const sliced = this.limitValue === undefined ? documents : documents.slice(0, this.limitValue);
-          return sliced.map((document) => ({ ...document }));
-        }
-      };
-      queries.push(query);
-      return query;
+    pipelines,
+    async aggregate(pipeline) {
+      pipelines.push(pipeline);
+      const limit = pipeline.find((stage) => stage.$limit)?.$limit ?? documents.length;
+      return documents.slice(0, limit).map((document) => ({ ...document }));
     }
   };
 }
@@ -79,8 +68,10 @@ test('nearby returns distance and batched availability counts from a single tabl
   assert.deepEqual(results[1].availability, { available: 1, reserved: 0, occupied: 0, unavailable: 4, total: 5 });
   assert.equal(results[0].distanceMeters, 420);
   assert.equal(results[0].source, 'catalogue');
-  assert.equal(restaurants.queries[0].filter.location.$near.$maxDistance, 5000);
-  assert.equal(restaurants.queries[0].filter.location.$near.distanceField, 'distanceMeters');
+  const [geoNear] = restaurants.pipelines[0].map((stage) => stage.$geoNear);
+  assert.equal(geoNear.key, 'location');
+  assert.equal(geoNear.maxDistance, 5000);
+  assert.equal(geoNear.distanceField, 'distanceMeters');
 });
 
 test('nearby honours the limit and the widest candidate window when ranking by availability', async () => {
@@ -88,10 +79,10 @@ test('nearby honours the limit and the widest candidate window when ranking by a
   const { service, restaurants } = buildService({ documents });
 
   await service.nearby({ latitude: 12.9, longitude: 80.2, radiusMeters: 5000, limit: 2 });
-  assert.equal(restaurants.queries[0].limitValue, 2);
+  assert.equal(restaurants.pipelines[0].find((stage) => stage.$limit).$limit, 2);
 
   await service.nearby({ latitude: 12.9, longitude: 80.2, radiusMeters: 5000, limit: 2, sort: 'availability' });
-  assert.equal(restaurants.queries[1].limitValue, 8, 'ranked searches widen the window so filtering does not hide nearby places');
+  assert.equal(restaurants.pipelines[1].find((stage) => stage.$limit).$limit, 8, 'ranked searches widen the window so filtering does not hide nearby places');
 });
 
 test('openOnly keeps only restaurants with an available table', async () => {
