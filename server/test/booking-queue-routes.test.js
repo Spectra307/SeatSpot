@@ -1,6 +1,8 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
@@ -17,6 +19,8 @@ import { LoginAttemptStore } from '../src/services/login-attempt-store.js';
 import { OtpStore } from '../src/services/otp-store.js';
 import { QueueService } from '../src/services/queue-service.js';
 import { RestaurantService } from '../src/services/restaurant-service.js';
+
+dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
 
 const jwtSecret = 'booking-queue-test-secret';
 const mongoUri = process.env.MONGO_URI

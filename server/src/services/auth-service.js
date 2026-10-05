@@ -106,6 +106,6 @@ export class AuthService {
   }
 
   issueToken(user) {
-    return jwt.sign({ sub: user._id.toString(), role: user.role, restaurantId: user.restaurantId.toString() }, this.jwtSecret, { expiresIn: this.jwtExpiresIn });
+    return jwt.sign({ sub: user._id.toString(), role: user.role, restaurantId: user.restaurantId.toString(), name: user.name }, this.jwtSecret, { expiresIn: this.jwtExpiresIn });
   }
 }

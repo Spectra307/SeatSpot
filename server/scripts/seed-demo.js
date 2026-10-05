@@ -18,38 +18,134 @@ if (String(staffPassword ?? '').length < 8) throw new Error('DEMO_STAFF_PASSWORD
 const demos = [
   {
     name: 'Harbor & Hearth',
-    address: 'Easwari Engineering College, Chennai',
+    cuisine: 'Modern European',
+    address: '12 Harbor View Road, Egmore, Chennai',
     coordinates: [80.2201, 12.9255],
     slug: 'harbor',
-    capacities: [2, 2, 4, 4, 6, 8]
+    tables: [
+      { capacity: 2, status: 'available' },
+      { capacity: 2, status: 'available' },
+      { capacity: 4, status: 'occupied' },
+      { capacity: 4, status: 'available' },
+      { capacity: 6, status: 'available' },
+      { capacity: 8, status: 'occupied' },
+      { capacity: 4, status: 'available' },
+      { capacity: 2, status: 'available' },
+      { capacity: 10, status: 'occupied' },
+      { capacity: 6, status: 'reserved' },
+      { capacity: 8, status: 'available' },
+      { capacity: 12, status: 'available' }
+    ]
   },
   {
     name: 'Garden Table',
-    address: 'Ramapuram, Chennai',
+    cuisine: 'South Indian',
+    address: 'Ramapuram Main Road, Chennai',
     coordinates: [80.2178, 12.9271],
     slug: 'garden',
-    capacities: [2, 4, 4, 6, 8, 10]
+    tables: [
+      { capacity: 2, status: 'available' },
+      { capacity: 4, status: 'available' },
+      { capacity: 4, status: 'occupied' },
+      { capacity: 2, status: 'available' },
+      { capacity: 6, status: 'available' },
+      { capacity: 8, status: 'occupied' },
+      { capacity: 4, status: 'available' },
+      { capacity: 10, status: 'available' }
+    ]
+  },
+  {
+    name: 'Tandoori Nights',
+    cuisine: 'North Indian BBQ',
+    address: '48 Bazaar Road, Kilpauk, Chennai',
+    coordinates: [80.2331, 12.9412],
+    slug: 'tandoori',
+    tables: [
+      { capacity: 2, status: 'available' },
+      { capacity: 4, status: 'available' },
+      { capacity: 4, status: 'occupied' },
+      { capacity: 6, status: 'available' },
+      { capacity: 2, status: 'available' },
+      { capacity: 8, status: 'reserved' },
+      { capacity: 4, status: 'available' },
+      { capacity: 10, status: 'occupied' },
+      { capacity: 6, status: 'available' },
+      { capacity: 4, status: 'unavailable' }
+    ]
+  },
+  {
+    name: 'Sushi Bay',
+    cuisine: 'Japanese',
+    address: '7 Beach View Lane, Besant Nagar, Chennai',
+    coordinates: [80.2103, 12.9345],
+    slug: 'sushi',
+    tables: [
+      { capacity: 2, status: 'available' },
+      { capacity: 2, status: 'occupied' },
+      { capacity: 4, status: 'available' },
+      { capacity: 4, status: 'reserved' },
+      { capacity: 6, status: 'available' },
+      { capacity: 2, status: 'available' }
+    ]
+  },
+  {
+    name: 'Coastal Catch',
+    cuisine: 'Seafood',
+    address: '23 Marina Esplanade, Chennai',
+    coordinates: [80.227, 12.9105],
+    slug: 'coastal',
+    tables: [
+      { capacity: 2, status: 'available' },
+      { capacity: 4, status: 'occupied' },
+      { capacity: 4, status: 'available' },
+      { capacity: 6, status: 'reserved' },
+      { capacity: 2, status: 'available' },
+      { capacity: 8, status: 'occupied' },
+      { capacity: 4, status: 'available' },
+      { capacity: 10, status: 'available' },
+      { capacity: 6, status: 'available' }
+    ]
+  },
+  {
+    // Deliberately the smallest room in the demo: three bookable tables, so a
+    // live demo can watch it drop 3 -> 2 -> Full as bookings land.
+    name: 'Spice House Anna Nagar',
+    cuisine: 'Chettinad',
+    address: 'AG Block, Anna Nagar, Chennai',
+    coordinates: [80.2081, 12.975],
+    slug: 'spice',
+    tables: [
+      { capacity: 4, status: 'available' },
+      { capacity: 4, status: 'available' },
+      { capacity: 6, status: 'reserved' },
+      { capacity: 4, status: 'available' },
+      { capacity: 2, status: 'unavailable' }
+    ]
   }
 ];
 
 await connectDatabase({ mongoUri, mongoDbName });
 try {
   for (const demo of demos) {
-    let restaurant = await Restaurant.findOne({ name: demo.name });
-    if (!restaurant) {
-      restaurant = await Restaurant.create({
-        restaurantId: new mongoose.Types.ObjectId(),
-        name: demo.name,
-        address: demo.address,
-        location: { type: 'Point', coordinates: demo.coordinates }
-      });
-    }
+    const restaurant = await Restaurant.findOneAndUpdate(
+      { name: demo.name },
+      {
+        $set: {
+          cuisine: demo.cuisine,
+          address: demo.address,
+          location: { type: 'Point', coordinates: demo.coordinates }
+        },
+        $setOnInsert: { restaurantId: new mongoose.Types.ObjectId() }
+      },
+      { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+    );
 
-    for (let index = 0; index < demo.capacities.length; index += 1) {
-      await Table.updateOne(
+    for (let index = 0; index < demo.tables.length; index += 1) {
+      const { capacity, status } = demo.tables[index];
+      await Table.findOneAndUpdate(
         { restaurantId: restaurant.restaurantId, label: `T${index + 1}` },
-        { $setOnInsert: { capacity: demo.capacities[index], status: 'available' } },
-        { upsert: true }
+        { $set: { capacity, status } },
+        { upsert: true, runValidators: true }
       );
     }
 
@@ -66,8 +162,11 @@ try {
       },
       { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
     );
-    console.info(`Seeded ${demo.name} with ${demo.capacities.length} tables and staff account ${email}`);
+
+    const available = demo.tables.filter((table) => table.status === 'available').length;
+    console.info(`Seeded ${demo.name} (${demo.cuisine}) - ${available} of ${demo.tables.length} tables free, staff account ${email}`);
   }
+  console.info(`Demo reset complete: ${demos.length} restaurants. Re-running this script restores the table states above.`);
 } finally {
   await disconnectDatabase();
 }

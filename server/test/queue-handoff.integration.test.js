@@ -1,5 +1,7 @@
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import { Booking } from '../src/models/booking.js';
@@ -9,6 +11,8 @@ import { BookingService } from '../src/services/booking-service.js';
 import { createBookingServiceFactory } from '../src/services/booking-service-factory.js';
 import { NotificationService } from '../src/services/notification-service.js';
 import { QueueService } from '../src/services/queue-service.js';
+
+dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
 
 const mongoUri = process.env.MONGO_URI
   ?? process.env.MONGODB_URI

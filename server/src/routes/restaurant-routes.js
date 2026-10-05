@@ -10,6 +10,10 @@ export function createRestaurantRouter(restaurantService, jwtSecret) {
     try { response.json({ restaurants: await restaurantService.nearby(request.query) }); }
     catch (error) { next(error); }
   });
+  router.get('/geocode', async (request, response, next) => {
+    try { response.json(await restaurantService.geocode(request.query.q)); }
+    catch (error) { next(error); }
+  });
   router.post('/', (_request, response) => {
     response.status(403).json({ error: 'Restaurant creation is disabled until an admin provisioning path is configured' });
   });

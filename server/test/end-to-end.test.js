@@ -1,7 +1,9 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
+import dotenv from 'dotenv';
 import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import { io as Client } from 'socket.io-client';
@@ -19,6 +21,8 @@ import { OtpStore } from '../src/services/otp-store.js';
 import { QueueService } from '../src/services/queue-service.js';
 import { RestaurantService } from '../src/services/restaurant-service.js';
 import { SocketRealtimeService } from '../src/services/socket-realtime.js';
+
+dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
 
 const jwtSecret = 'seatspot-e2e-test-secret';
 const mongoUri = process.env.MONGO_URI

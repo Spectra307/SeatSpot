@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Clock3, Crown, LoaderCircle, MapPin, Minus, Plus, Users, Utensils } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/app-header.jsx';
@@ -30,13 +30,17 @@ function errorMessage(error) {
 export function RestaurantDetailPage() {
   const { restaurantId } = useParams();
   const { token, claims } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState(null);
   const [tables, setTables] = useState([]);
   const [queuePosition, setQueuePosition] = useState(0);
   const [queueLength, setQueueLength] = useState(0);
   const [selectedTable, setSelectedTable] = useState(null);
-  const [partySize, setPartySize] = useState(2);
+  const [partySize, setPartySize] = useState(() => {
+    const requested = Number(location.state?.partySize);
+    return Number.isInteger(requested) && requested >= 1 && requested <= 20 ? requested : 2;
+  });
   const [bookingTime, setBookingTime] = useState(() => {
     const date = new Date(Date.now() + 60 * 60 * 1000);
     date.setMinutes(Math.ceil(date.getMinutes() / 15) * 15, 0, 0);

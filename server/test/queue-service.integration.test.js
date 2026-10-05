@@ -1,7 +1,11 @@
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
 import Redis from 'ioredis';
 import { QueueService } from '../src/services/queue-service.js';
+
+dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
 
 const redisUrl = process.env.REDIS_URL
   ?? `redis://:${encodeURIComponent(process.env.REDIS_PASSWORD ?? 'replace-with-a-strong-redis-password')}@127.0.0.1:6379`;

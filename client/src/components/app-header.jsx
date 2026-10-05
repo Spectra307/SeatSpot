@@ -6,6 +6,8 @@ import { Button } from './ui/button.jsx';
 export function AppHeader({ active = 'restaurants' }) {
   const { claims, logout } = useAuth();
   const navigate = useNavigate();
+  const displayName = String(claims?.name ?? '').trim() || 'Your account';
+  const roleLabel = claims?.role === 'staff' ? 'Restaurant staff' : 'Customer';
 
   function signOut() {
     logout();
@@ -23,8 +25,11 @@ export function AppHeader({ active = 'restaurants' }) {
         {claims?.role === 'staff' && <Link className={active === 'staff' ? 'active' : ''} to={`/staff/${claims.restaurantId}`}>Staff operations</Link>}
       </nav>
       <div className="app-user">
-        <span className="user-avatar">{String(claims?.sub ?? 'G').slice(0, 1).toUpperCase()}</span>
-        <span className="user-role">{claims?.role === 'staff' ? 'Staff' : 'Guest'}</span>
+        <span className="user-avatar" aria-hidden="true">{displayName.slice(0, 1).toUpperCase()}</span>
+        <span className="user-identity">
+          <strong>{displayName}</strong>
+          <small>{roleLabel}</small>
+        </span>
         <Button variant="ghost" size="icon" aria-label="Sign out" title="Sign out" onClick={signOut}><LogOut size={17} /></Button>
       </div>
     </div>
