@@ -285,3 +285,35 @@ test('socket emit and promotion are skipped when promotion fails, cancel still s
   assert.equal(cancelled.status, 'cancelled');
   assert.equal((await Table.findById(booking.tableId).lean()).status, 'available');
 });
+
+test('GET /api/bookings returns only the current user\'s confirmed bookings', async () => {
+  const mine = await createFixture();
+  const other = await createFixture({ userId: new mongoose.Types.ObjectId() });
+  await createFixture({ userId: mine.userId });
+  await Booking.updateOne({ _id: other.booking._id }, { $set: { status: 'cancelled' } });
+
+  const response = await request(app)
+    .get('/api/bookings')
+    .set('Authorization', `Bearer ${customerToken(mine.userId)}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.bookings.length, 2);
+  assert.ok(response.body.bookings.every((b) => String(b.userId) === String(mine.userId)));
+  assert.ok(response.body.bookings.every((b) => b.status === 'confirmed'));
+  assert.ok(response.body.bookings.every((b) => typeof b.restaurantName === 'string' && b.restaurantName.length > 0));
+});
+
+test('cancelled bookings disappear from GET /api/bookings', async () => {
+  const { booking, userId } = await createFixture();
+
+  await request(app)
+    .patch(`/api/bookings/${booking._id}/cancel`)
+    .set('Authorization', `Bearer ${customerToken(userId)}`);
+
+  const response = await request(app)
+    .get('/api/bookings')
+    .set('Authorization', `Bearer ${customerToken(userId)}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.bookings.length, 0);
+});

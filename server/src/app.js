@@ -21,7 +21,7 @@ export function createApp({ authService, restaurantService, bookingServiceFactor
 
   if (authService) app.use('/api/auth', createAuthRouter(authService, { exposeOtp }));
   if (bookingServiceFactory) app.use('/api/restaurants', createBookingRouter({ bookingServiceFactory, jwtSecret }));
-  if (bookingServiceFactory && bookings) app.use('/api/bookings', createBookingCancelRouter({ bookings, bookingServiceFactory, jwtSecret }));
+  if (bookingServiceFactory && bookings) app.use('/api/bookings', createBookingCancelRouter({ bookings, bookingServiceFactory, jwtSecret, restaurants }));
   if (queueService && restaurants) app.use('/api/restaurants', createQueueRouter({ queueService, restaurants, jwtSecret }));
   if (dashboardService && restaurants) app.use('/api/restaurants', createDashboardRouter({ dashboardService, restaurants, jwtSecret }));
   if (restaurantService) app.use('/api/restaurants', createRestaurantRouter(restaurantService, jwtSecret));

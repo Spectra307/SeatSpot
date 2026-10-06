@@ -2,9 +2,32 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { authenticate } from '../middleware/authenticate.js';
 
-export function createBookingCancelRouter({ bookings, bookingServiceFactory, jwtSecret }) {
+export function createBookingCancelRouter({ bookings, bookingServiceFactory, jwtSecret, restaurants }) {
   const router = Router();
   router.use(authenticate(jwtSecret));
+
+  router.get('/', async (request, response, next) => {
+    try {
+      const mine = await bookings
+        .find({ userId: request.auth.sub, status: 'confirmed' })
+        .sort({ startsAt: 1 })
+        .lean();
+      const restaurantIds = [...new Set(mine.map((booking) => String(booking.restaurantId)))];
+      const restaurantRows = restaurants
+        ? await restaurants.find({ restaurantId: { $in: restaurantIds } }).select('restaurantId name address').lean()
+        : [];
+      const namesById = new Map(restaurantRows.map((restaurant) => [String(restaurant.restaurantId), restaurant]));
+      response.json({
+        bookings: mine.map((booking) => ({
+          ...booking,
+          restaurantName: namesById.get(String(booking.restaurantId))?.name ?? null,
+          restaurantAddress: namesById.get(String(booking.restaurantId))?.address ?? null
+        }))
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   router.patch('/:id/cancel', async (request, response, next) => {
     try {

@@ -1,4 +1,4 @@
-import { Armchair, LogOut, Search } from 'lucide-react';
+import { Armchair, CalendarClock, LogOut, Search } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/auth-context.jsx';
 import { Button } from './ui/button.jsx';
@@ -22,6 +22,7 @@ export function AppHeader({ active = 'restaurants' }) {
       </Link>
       <nav className="app-nav" aria-label="Main navigation">
         <Link className={active === 'restaurants' ? 'active' : ''} to="/restaurants"><Search size={15} /> Find a table</Link>
+        {claims?.role !== 'staff' && <Link className={active === 'bookings' ? 'active' : ''} to="/bookings"><CalendarClock size={15} /> My bookings</Link>}
         {claims?.role === 'staff' && <Link className={active === 'staff' ? 'active' : ''} to={`/staff/${claims.restaurantId}`}>Staff operations</Link>}
       </nav>
       <div className="app-user">
