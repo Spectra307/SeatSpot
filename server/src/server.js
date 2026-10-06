@@ -35,20 +35,21 @@ async function start() {
     authPartitionRestaurantId: config.authPartitionRestaurantId
   });
   const restaurantService = new RestaurantService({ restaurants: Restaurant, tables: Table, mapsClient: new GooglePlacesClient(config.googleMapsApiKey) });
+  const queueService = new QueueService(redis, {
+    bookings: Booking,
+    notificationService,
+    socketRealtimeService
+  });
   const bookingServiceFactory = createBookingServiceFactory({
     restaurants: Restaurant,
     tables: Table,
     bookings: Booking,
     mongoClient: mongoose.connection.getClient(),
     notificationService,
-    socketRealtimeService
+    socketRealtimeService,
+    queueService
   });
-  const queueService = new QueueService(redis, {
-    bookings: Booking,
-    bookingServiceFactory,
-    notificationService,
-    socketRealtimeService
-  });
+  queueService.bookingServiceFactory = bookingServiceFactory;
   const dashboardService = new DashboardService({
     tables: Table,
     bookings: Booking,

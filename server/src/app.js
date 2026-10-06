@@ -2,12 +2,12 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { databaseStatus } from './config/database.js';
 import { createAuthRouter } from './routes/auth-routes.js';
-import { createBookingRouter } from './routes/booking-routes.js';
+import { createBookingRouter, createBookingCancelRouter } from './routes/booking-routes.js';
 import { createDashboardRouter } from './routes/dashboard-routes.js';
 import { createQueueRouter } from './routes/queue-routes.js';
 import { createRestaurantRouter } from './routes/restaurant-routes.js';
 
-export function createApp({ authService, restaurantService, bookingServiceFactory, queueService, dashboardService, restaurants, jwtSecret, exposeOtp = false, apiRateLimitOptions = {} } = {}) {
+export function createApp({ authService, restaurantService, bookingServiceFactory, queueService, dashboardService, restaurants, jwtSecret, exposeOtp = false, apiRateLimitOptions = {}, bookings } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json());
@@ -21,6 +21,7 @@ export function createApp({ authService, restaurantService, bookingServiceFactor
 
   if (authService) app.use('/api/auth', createAuthRouter(authService, { exposeOtp }));
   if (bookingServiceFactory) app.use('/api/restaurants', createBookingRouter({ bookingServiceFactory, jwtSecret }));
+  if (bookingServiceFactory && bookings) app.use('/api/bookings', createBookingCancelRouter({ bookings, bookingServiceFactory, jwtSecret }));
   if (queueService && restaurants) app.use('/api/restaurants', createQueueRouter({ queueService, restaurants, jwtSecret }));
   if (dashboardService && restaurants) app.use('/api/restaurants', createDashboardRouter({ dashboardService, restaurants, jwtSecret }));
   if (restaurantService) app.use('/api/restaurants', createRestaurantRouter(restaurantService, jwtSecret));

@@ -7,7 +7,8 @@ const bookingSchema = new mongoose.Schema({
   partySize: { type: Number, required: true, min: 1 },
   startsAt: { type: Date, required: true },
   source: { type: String, enum: ['customer', 'walk-in', 'queue'], default: 'customer' },
-  status: { type: String, enum: ['confirmed', 'cancelled', 'completed'], default: 'confirmed' }
+  status: { type: String, enum: ['confirmed', 'cancelled', 'completed'], default: 'confirmed' },
+  cancelledAt: { type: Date }
 }, { timestamps: true });
 
 bookingSchema.index({ restaurantId: 1, _id: 1 });

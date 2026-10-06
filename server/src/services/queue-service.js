@@ -287,6 +287,33 @@ export class QueueService {
     }
   }
 
+  async promoteNextFromQueue({ restaurantId }) {
+    if (!restaurantId) {
+      throw createHttpError('restaurantId is required', 400);
+    }
+
+    const customerId = await this.redis.lpop(this._queueKey(restaurantId));
+    if (!customerId) return null;
+
+    await this._publishPositions(restaurantId);
+
+    try {
+      this.socketRealtimeService?.emitToUser(String(customerId), 'queue:promoted', {
+        restaurantId: String(restaurantId)
+      });
+    } catch {
+      // Realtime delivery is best-effort after the queue pop.
+    }
+
+    await this.notificationService?.notifySafely({
+      type: 'queue-promoted',
+      userId: String(customerId),
+      restaurantId: String(restaurantId)
+    });
+
+    return { restaurantId: String(restaurantId), promotedUserId: String(customerId) };
+  }
+
   async _notifyPromotion({ restaurantId, customerId, booking }) {
     try {
       this.socketRealtimeService?.emitToUser(String(customerId), 'queue:promoted', {

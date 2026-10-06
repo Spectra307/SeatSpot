@@ -157,6 +157,7 @@ The project uses Node's built-in test runner (`node --test`) with integration te
 | `auth-service.test.js` | Signup, OTP verification, login, token issuance |
 | `booking-service.test.js` | Reservation contract: 201/409/400 cases, transaction rollback on failure, over-capacity rejection, 20-way concurrency |
 | `booking-queue-routes.test.js` | Full HTTP layer: auth binding (identity from token, not request body), tenant authorization, rate-limit integration |
+| `booking-cancel.test.js` | Cancel-booking contract: owner 200, non-owner 404, wrong-state 409, concurrent-cancel 409, rollback on table-update failure, queue promotion |
 | `queue-service.test.js` / `queue-service.integration.test.js` | Queue join/leave/position against real Redis; duplicate-join and empty-queue edge cases |
 | `queue-handoff.integration.test.js` | Queue-to-table handoff: rollback on failure, concurrent handoff for the same user, no double-seating on retry |
 | `socket-realtime.test.js` | JWT handshake verification, room authorization (cross-tenant join rejection), rate limiting, private-event isolation |
@@ -239,6 +240,7 @@ The restaurant directory offers a search radius, closest-first or most-tables-op
 - `GET /api/restaurants/:restaurantId`, `/availability`, `/tables` — discovery (authenticated)
 - `PATCH /api/restaurants/:restaurantId` — staff-only, same-restaurant only
 - `POST /api/restaurants/:restaurantId/bookings` — book a table
+- `PATCH /api/bookings/:id/cancel` — customer cancels a confirmed booking; releases the table in the same transaction and promotes the queue head
 - `POST | GET /position | DELETE /api/restaurants/:restaurantId/queue` — join, check position, leave
 - `GET|POST|PATCH /api/restaurants/:restaurantId/dashboard/...` — staff table grid, queue view, walk-in seating, queue handoff, table-status override (staff-only, same-restaurant only)
 - Socket.IO rooms — `availability:{restaurantId}` (validated public), `staff:{restaurantId}` and `user:{userId}` (private, server-assigned)
