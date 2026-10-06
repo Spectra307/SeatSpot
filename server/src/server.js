@@ -68,7 +68,8 @@ async function start() {
     dashboardService,
     restaurants: Restaurant,
     jwtSecret: config.jwtSecret,
-    exposeOtp: config.env !== 'production'
+    exposeOtp: config.env !== 'production',
+    bookings: Booking
   });
   const server = createServer(app);
   socketRealtimeService.attach(server);
