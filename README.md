@@ -77,6 +77,126 @@ Socket.IO connects directly to the Node/Express server alongside the REST API �
 
 ---
 
+## 2.1 Use Case Diagram
+
+```
+                        SEATSPOT — USE CASE DIAGRAM
+
+  ┌─────────────┐                                          ┌─────────────┐
+  │  Customer   │                                          │    Staff    │
+  └──────┬──────┘                                          └──────┬──────┘
+         │                                                       │
+         │  ┌──────────────────────────────────────────────────┐ │
+         │  │                     SeatSpot                     │ │
+         │  │                                                  │ │
+         ├──┼──► Sign up / Verify OTP / Log in               ◄─┼─┤
+         │  │                                                  │ │
+         ├──┼──► Search restaurants (location / area / radius) │ │
+         │  │      └─ live availability via Socket.IO        ◄─┼─┤
+         │  │                                                  │ │
+         ├──┼──► View restaurant tables                        │ │
+         │  │                                                  │ │
+         ├──┼──► Book a table                                  │ │
+         │  │                                                  │ │
+         ├──┼──► Join / leave virtual queue                    │ │
+         │  │                                                  │ │
+         ├──┼──► View my bookings                              │ │
+         │  │                                                  │ │
+         ├──┼──► Cancel a confirmed booking                    │ │
+         │  │      └─ table released + queue promotion         │ │
+         │  │                                                  │ │
+         │  │  ┌────────────────────────────────────────────┐  │ │
+         │  │  │   Automated / System                      │  │ │
+         │  │  │  • Notify queue head (queue:promoted)     │  │ │
+         │  │  │  • Broadcast availability:update rooms    │  │ │
+         │  │  └────────────────────────────────────────────┘  │ │
+         │  │                                                  │ │
+         │  │   ┌──────────────────────────── Staff only ───┐  │ │
+         │  │   │ • View table grid                        │ ◄─┼─┤
+         │  │   │ • Override table status                  │ ◄─┼─┤
+         │  │   │ • Seat walk-in customer                  │ ◄─┼─┤
+         │  │   │ • View restaurant queue                  │ ◄─┼─┤
+         │  │   │ • Seat / hand off next queued customer   │ ◄─┼─┤
+         │  │   └───────────────────────────────────────────┘  │ │
+         │  └──────────────────────────────────────────────────┘ │
+```
+
+- **Customer**: signup/OTP/login, geo or area search, table view, book, queue join/leave, and managing their own bookings (list + cancel).
+- **Staff**: restaurant-scoped operations — table grid, status overrides, walk-ins, queue view, and queue handoff.
+- Automated behavior (availability broadcast and queue-head promotion notifications) is triggered by commits, not by actors directly.
+
+## 2.2 ER Diagram
+
+```
+erDiagram
+    RESTAURANT ||--o{ TABLE      : "has"
+    RESTAURANT ||--o{ BOOKING    : "has"
+    RESTAURANT ||--o{ QUEUE_ENTRY: "has"
+    USER       ||--o{ BOOKING    : "makes"
+    USER       ||--o{ QUEUE_ENTRY: "joins"
+    USER       }o--o| RESTAURANT : "staff of (restaurantId partition)"
+    TABLE      ||--o{ BOOKING    : "booked via"
+
+    RESTAURANT {
+        ObjectId _id PK
+        ObjectId restaurantId UK "public id used by Table/Booking"
+        string   name
+        string   cuisine
+        string   address
+        string   googlePlaceId
+        Point    location "2dsphere"
+        string   timezone
+    }
+
+    TABLE {
+        ObjectId _id PK
+        ObjectId restaurantId FK "-> Restaurant.restaurantId"
+        string   label "unique per restaurant"
+        int      capacity
+        enum     status "available|reserved|occupied|unavailable"
+    }
+
+    USER {
+        ObjectId _id PK
+        ObjectId restaurantId "staff partition, default auth partition"
+        string   name
+        string   email "unique per partition"
+        string   passwordHash
+        bool     isVerified
+        enum     role "customer|staff|owner"
+    }
+
+    BOOKING {
+        ObjectId _id PK
+        ObjectId restaurantId FK "-> Restaurant.restaurantId"
+        ObjectId tableId FK "-> Table._id"
+        ObjectId userId FK "-> User._id"
+        int      partySize
+        date     startsAt
+        enum     source "customer|walk-in|queue"
+        enum     status "confirmed|cancelled|completed"
+        date     cancelledAt
+    }
+
+    QUEUE_ENTRY {
+        ObjectId _id PK
+        ObjectId restaurantId FK "-> Restaurant.restaurantId"
+        ObjectId userId FK "-> User._id"
+        int      partySize
+        enum     status "waiting|notified|seated|cancelled"
+        date     joinedAt
+    }
+```
+
+Key constraints:
+
+- Partial unique index on `Booking(restaurantId, userId)` where `status='confirmed'` — a customer can hold at most one active booking.
+- `Table(restaurantId, label)` unique.
+- Runtime queue is a Redis list per restaurant (`queue:<restaurantId>`); the `QueueEntry` collection mirrors durable queue history while Redis owns live ordering.
+- All collections carry `restaurantId` for shard-key co-location (`{restaurantId, _id}` indexes).
+
+---
+
 ## 3. Core Algorithms & Underlying Concepts
 
 ### 3.1 Atomic table reservation (race-condition prevention)
