@@ -19,17 +19,20 @@ import { GooglePlacesClient } from './services/google-places-client.js';
 import { RestaurantService } from './services/restaurant-service.js';
 import { QueueService } from './services/queue-service.js';
 import { SocketRealtimeService } from './services/socket-realtime.js';
+import { createEmailService } from './services/emailService.js';
 
 async function start() {
   const config = getConfig();
   await connectDatabase(config);
   const redis = await connectRedis(config.redisUrl);
+  const emailService = createEmailService(config);
   const socketRealtimeService = new SocketRealtimeService({ jwtSecret: config.jwtSecret, restaurants: Restaurant });
   const notificationService = new NotificationService();
   const authService = new AuthService({
     users: User,
     otpStore: new OtpStore(redis, config.otpTtlSeconds),
     loginAttemptStore: new LoginAttemptStore(redis),
+    emailService,
     jwtSecret: config.jwtSecret,
     jwtExpiresIn: config.jwtExpiresIn,
     authPartitionRestaurantId: config.authPartitionRestaurantId
@@ -44,10 +47,12 @@ async function start() {
     restaurants: Restaurant,
     tables: Table,
     bookings: Booking,
+    users: User,
     mongoClient: mongoose.connection.getClient(),
     notificationService,
     socketRealtimeService,
-    queueService
+    queueService,
+    emailService
   });
   queueService.bookingServiceFactory = bookingServiceFactory;
   const dashboardService = new DashboardService({
@@ -68,7 +73,6 @@ async function start() {
     dashboardService,
     restaurants: Restaurant,
     jwtSecret: config.jwtSecret,
-    exposeOtp: config.env !== 'production',
     bookings: Booking
   });
   const server = createServer(app);

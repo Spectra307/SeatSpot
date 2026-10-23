@@ -32,6 +32,13 @@ export function getConfig() {
     redisUrl,
     otpTtlSeconds: Number(process.env.OTP_TTL_SECONDS ?? 300),
     authPartitionRestaurantId: process.env.AUTH_PARTITION_RESTAURANT_ID ?? '000000000000000000000001',
-    googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY
+    googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
+    // SMTP — all optional. When SMTP_HOST is absent the email service falls
+    // back to a dev-console log in development and a silent no-op in production.
+    smtpHost: process.env.SMTP_HOST,
+    smtpPort: process.env.SMTP_PORT ?? '587',
+    smtpUser: process.env.SMTP_USER,
+    smtpPass: process.env.SMTP_PASS,
+    mailFrom: process.env.MAIL_FROM ?? 'SeatSpot <no-reply@seatspot.app>'
   });
 }

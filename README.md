@@ -353,18 +353,37 @@ The server waits for MongoDB and Redis to be reachable before listening. A healt
 
 The restaurant directory offers a search radius, closest-first or most-tables-open sorting, and an open-tables-only filter. It subscribes to the `availability:{restaurantId}` socket rooms for the listed restaurants, so table counts and the header indicator update without a refresh.
 
+### Configuring SMTP (Email Service)
+
+SeatSpot sends transactional emails for signup OTP verification, booking confirmations, and booking cancellations using a swappable Nodemailer service (`server/src/services/emailService.js`).
+
+To configure email delivery, set these variables in `.env`:
+
+```env
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+MAIL_FROM=SeatSpot <no-reply@seatspot.app>
+```
+
+- **Development fallback**: If `SMTP_HOST` is left blank in development (`NODE_ENV=development`), the service prints the generated 6-digit OTP directly to the server console, allowing immediate testing without an SMTP server.
+- **Provider compatibility**: Compatible with standard SMTP services:
+  - **Resend**: `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_USER=resend`, `SMTP_PASS=<api_key>`
+  - **SendGrid**: `SMTP_HOST=smtp.sendgrid.net`, `SMTP_PORT=587`, `SMTP_USER=apikey`, `SMTP_PASS=<api_key>`
+
 ### API surface summary
 
-- `POST /api/auth/signup`, `/request-otp`, `/verify-otp`, `/login` — account creation and authentication
+- `POST /api/auth/signup`, `/resend-otp`, `/verify-otp`, `/login` — account creation, OTP resend (with 60s cooldown & hourly cap), OTP verification, authentication
 - `GET /api/restaurants/nearby` — geo discovery with `radiusMeters`, `sort`, `openOnly`, `limit`
 - `GET /api/restaurants/:restaurantId`, `/availability`, `/tables` — discovery (authenticated)
 - `PATCH /api/restaurants/:restaurantId` — staff-only, same-restaurant only
 - `POST /api/restaurants/:restaurantId/bookings` — book a table
 - `PATCH /api/bookings/:id/cancel` — customer cancels a confirmed booking; releases the table in the same transaction and promotes the queue head
 - `POST | GET /position | DELETE /api/restaurants/:restaurantId/queue` — join, check position, leave
-- `GET|POST|PATCH /api/restaurants/:restaurantId/dashboard/...` — staff table grid, queue view, walk-in seating, queue handoff, table-status override (staff-only, same-restaurant only)
+- `GET|POST|PATCH /api/restaurants/:restaurantId/dashboard/...` — staff table grid, overview metrics, bookings panel with status transitions (`seated`, `completed`, `no-show`, `cancelled`), Recharts analytics (`/stats`), queue view, walk-in seating, queue handoff, table-status override (staff-only, same-restaurant only)
 - Socket.IO rooms — `availability:{restaurantId}` (validated public), `staff:{restaurantId}` and `user:{userId}` (private, server-assigned)
 
 ### Known scope limitations
 
-Restaurant creation/deletion and a general admin role are intentionally disabled, since no admin provisioning workflow exists yet. Notifications currently log rather than send real email (the interface is in place; a provider can be plugged in without changing calling code). These are documented limitations, not oversights.
+Restaurant creation/deletion and a general admin role are intentionally disabled, since no admin provisioning workflow exists yet. Email delivery is fire-and-forget; failure to send an email never delays or blocks transactions.

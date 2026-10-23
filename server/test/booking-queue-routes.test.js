@@ -35,6 +35,7 @@ const authPartitionRestaurantId = '000000000000000000000001';
 const testEmails = new Set();
 let redis;
 let app;
+let latestCapturedOtp = null;
 
 before(async () => {
   await mongoose.connect(mongoUri, { dbName: databaseName, serverSelectionTimeoutMS: 5000 });
@@ -43,11 +44,18 @@ before(async () => {
   redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
   await redis.connect();
 
+  const emailService = {
+    async sendOtp(_email, otp) { latestCapturedOtp = otp; },
+    sendBookingConfirmation() {},
+    sendBookingCancellation() {}
+  };
   const bookingServiceFactory = createBookingServiceFactory({
     restaurants: Restaurant,
     tables: Table,
     bookings: Booking,
-    mongoClient: mongoose.connection.getClient()
+    users: User,
+    mongoClient: mongoose.connection.getClient(),
+    emailService
   });
   const queueService = new QueueService(redis, { queueKeyPrefix: queuePrefix });
   const dashboardService = new DashboardService({
@@ -67,6 +75,7 @@ before(async () => {
       lockoutSeconds: 2,
       keyPrefix: loginKeyPrefix
     }),
+    emailService,
     jwtSecret,
     jwtExpiresIn: '1h',
     authPartitionRestaurantId
@@ -328,7 +337,7 @@ test('restaurant read access is authenticated while patching is limited to staff
 test('public signup ignores requested staff role and restaurantId and issues a customer token', async () => {
   const email = `public-${new mongoose.Types.ObjectId()}@example.com`;
   const requestedRestaurantId = new mongoose.Types.ObjectId().toString();
-  const signup = await request(app)
+  await request(app)
     .post('/api/auth/signup')
     .send({
       name: 'Public Signup',
@@ -341,7 +350,7 @@ test('public signup ignores requested staff role and restaurantId and issues a c
 
   const verified = await request(app)
     .post('/api/auth/verify-otp')
-    .send({ email, otp: signup.body.otp })
+    .send({ email, otp: latestCapturedOtp })
     .expect(200);
   const claims = jwt.verify(verified.body.token, jwtSecret);
   const user = await User.findById(claims.sub).lean();
@@ -379,11 +388,11 @@ test('tenant-scoped staff login issues role and restaurantId from the stored acc
 test('the sixth OTP guess is rejected after five failures, even when correct; resend is rate limited', async () => {
   const email = `otp-attempts-${process.pid}-${new mongoose.Types.ObjectId()}@example.com`;
   testEmails.add(email);
-  const signup = await request(app)
+  await request(app)
     .post('/api/auth/signup')
     .send({ name: 'OTP Test', email, password: 'password123' })
     .expect(201);
-  const otp = signup.body.otp;
+  const otp = latestCapturedOtp;
   const wrongOtp = otp === '000000' ? '000001' : '000000';
 
   const codeTtl = await redis.ttl(`otp:code:${email}`);
@@ -401,9 +410,11 @@ test('the sixth OTP guess is rejected after five failures, even when correct; re
 
   await request(app).post('/api/auth/verify-otp').send({ email, otp }).expect(400);
 
-  const resent = await request(app).post('/api/auth/request-otp').send({ email }).expect(200);
-  assert.ok(resent.body.otp);
-  await request(app).post('/api/auth/verify-otp').send({ email, otp: resent.body.otp }).expect(200);
+  // Clear cooldown to test resend
+  await redis.del(`otp:cooldown:${email}`);
+  await request(app).post('/api/auth/request-otp').send({ email }).expect(200);
+  const resentOtp = latestCapturedOtp;
+  await request(app).post('/api/auth/verify-otp').send({ email, otp: resentOtp }).expect(200);
 
   const rateLimitedEmail = `otp-rate-${process.pid}-${new mongoose.Types.ObjectId()}@example.com`;
   testEmails.add(rateLimitedEmail);
@@ -411,8 +422,11 @@ test('the sixth OTP guess is rejected after five failures, even when correct; re
     .post('/api/auth/signup')
     .send({ name: 'OTP Rate Test', email: rateLimitedEmail, password: 'password123' })
     .expect(201);
+  await redis.del(`otp:cooldown:${rateLimitedEmail}`);
   await request(app).post('/api/auth/request-otp').send({ email: rateLimitedEmail }).expect(200);
+  await redis.del(`otp:cooldown:${rateLimitedEmail}`);
   await request(app).post('/api/auth/request-otp').send({ email: rateLimitedEmail }).expect(200);
+  await redis.del(`otp:cooldown:${rateLimitedEmail}`);
   await request(app).post('/api/auth/request-otp').send({ email: rateLimitedEmail }).expect(429);
 });
 

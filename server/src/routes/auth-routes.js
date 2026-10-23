@@ -1,24 +1,33 @@
 import { Router } from 'express';
 
-export function createAuthRouter(authService, { exposeOtp = false } = {}) {
+export function createAuthRouter(authService) {
   const router = Router();
 
   router.post('/signup', async (request, response, next) => {
     try {
-      const { otp } = await authService.signup(request.body);
+      await authService.signup(request.body);
       response.status(201).json({
-        message: 'Account created. Verify the OTP before signing in.',
-        ...(exposeOtp ? { otp } : {})
+        message: 'Account created. Check your email for the verification code.'
       });
     } catch (error) { next(error); }
   });
 
+  // Kept as /request-otp for backwards compatibility; also mounted as /resend-otp below.
   router.post('/request-otp', async (request, response, next) => {
     try {
-      const { otp } = await authService.requestOtp(request.body ?? {});
+      await authService.requestOtp(request.body ?? {});
       response.json({
-        message: 'If the account can receive an OTP, a new code has been issued.',
-        ...(exposeOtp && otp ? { otp } : {})
+        message: 'If the account can receive an OTP, a new code has been sent.'
+      });
+    } catch (error) { next(error); }
+  });
+
+  // Canonical resend endpoint with 60-second cooldown and hourly cap.
+  router.post('/resend-otp', async (request, response, next) => {
+    try {
+      await authService.requestOtp(request.body ?? {});
+      response.json({
+        message: 'If the account can receive an OTP, a new code has been sent.'
       });
     } catch (error) { next(error); }
   });
@@ -32,5 +41,6 @@ export function createAuthRouter(authService, { exposeOtp = false } = {}) {
     try { response.json({ token: await authService.login(request.body, request.ip) }); }
     catch (error) { next(error); }
   });
+
   return router;
 }

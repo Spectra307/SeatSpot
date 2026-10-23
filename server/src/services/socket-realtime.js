@@ -205,6 +205,15 @@ export class SocketRealtimeService {
     this.io.to(`staff:${restaurantId}`).emit('queue:update', { restaurantId: String(restaurantId), payload });
   }
 
+  broadcastBookingUpdate(restaurantId, type, booking) {
+    if (!this.io || !restaurantId) return;
+    this.io.to(`staff:${restaurantId}`).emit('booking:update', {
+      restaurantId: String(restaurantId),
+      type, // 'created' | 'cancelled' | 'status_changed'
+      booking
+    });
+  }
+
   emitToUser(userId, eventName, payload) {
     if (!this.io || !userId || typeof eventName !== 'string') return;
     this.io.to(`user:${userId}`).emit(eventName, payload);

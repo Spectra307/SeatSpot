@@ -30,8 +30,8 @@ test('signup, OTP verification, and login issue valid JWTs', async () => {
   const users = new Users();
   const store = new OtpStore();
   const service = new AuthService({ users, otpStore: store, jwtSecret: 'test-secret', jwtExpiresIn: '1h', authPartitionRestaurantId: 'partition-1' });
-  const { otp } = await service.signup({ name: 'Ada', email: 'ada@example.com', password: 'password123' });
-  const token = await service.verifyOtp({ email: 'ada@example.com', otp });
+  await service.signup({ name: 'Ada', email: 'ada@example.com', password: 'password123' });
+  const token = await service.verifyOtp({ email: 'ada@example.com', otp: store.otp });
   assert.equal(jwt.verify(token, 'test-secret').sub, 'user-1');
   const loginToken = await service.login({ email: 'ada@example.com', password: 'password123' });
   assert.equal(jwt.verify(loginToken, 'test-secret').role, 'customer');

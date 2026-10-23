@@ -8,6 +8,13 @@ export function createDashboardRouter({ dashboardService, restaurants, jwtSecret
   router.use(authenticate(jwtSecret));
   router.use('/:restaurantId/dashboard', authorizeRestaurantStaff);
 
+  router.get('/:restaurantId/dashboard/overview', async (request, response, next) => {
+    try {
+      const restaurantId = await resolveRestaurantId(restaurants, request.params.restaurantId);
+      response.json(await dashboardService.getOverview(restaurantId));
+    } catch (error) { next(error); }
+  });
+
   router.get('/:restaurantId/dashboard/tables', async (request, response, next) => {
     try {
       const restaurantId = await resolveRestaurantId(restaurants, request.params.restaurantId);
@@ -19,6 +26,45 @@ export function createDashboardRouter({ dashboardService, restaurants, jwtSecret
     try {
       const restaurantId = await resolveRestaurantId(restaurants, request.params.restaurantId);
       response.json(await dashboardService.getQueue(restaurantId));
+    } catch (error) { next(error); }
+  });
+
+  router.get('/:restaurantId/dashboard/bookings', async (request, response, next) => {
+    try {
+      const restaurantId = await resolveRestaurantId(restaurants, request.params.restaurantId);
+      const { date, status, q, page, limit } = request.query;
+      const result = await dashboardService.getBookings({
+        restaurantId,
+        date,
+        status,
+        q,
+        page,
+        limit
+      });
+      response.json(result);
+    } catch (error) { next(error); }
+  });
+
+  router.patch('/:restaurantId/dashboard/bookings/:bookingId/status', async (request, response, next) => {
+    try {
+      const restaurantId = await resolveRestaurantId(restaurants, request.params.restaurantId);
+      // Strictly ignore any restaurantId or userId passed in request body
+      const status = request.body?.status;
+      const updated = await dashboardService.updateBookingStatus({
+        restaurantId,
+        bookingId: request.params.bookingId,
+        status
+      });
+      response.json(updated);
+    } catch (error) { next(error); }
+  });
+
+  router.get('/:restaurantId/dashboard/stats', async (request, response, next) => {
+    try {
+      const restaurantId = await resolveRestaurantId(restaurants, request.params.restaurantId);
+      const range = request.query?.range === '30d' ? '30d' : '7d';
+      const stats = await dashboardService.getStats({ restaurantId, range });
+      response.json(stats);
     } catch (error) { next(error); }
   });
 

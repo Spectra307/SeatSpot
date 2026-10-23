@@ -41,6 +41,7 @@ let app;
 let realtime;
 let socket;
 let emails = [];
+let latestOtp;
 
 before(async () => {
   await mongoose.connect(mongoUri, { dbName: databaseName, serverSelectionTimeoutMS: 5000 });
@@ -48,12 +49,18 @@ before(async () => {
   redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
   await redis.connect();
 
+  const emailService = {
+    async sendOtp(toEmail, otp) { latestOtp = otp; },
+    sendBookingConfirmation() {},
+    sendBookingCancellation() {}
+  };
   const notificationService = new NotificationService({ logger: { info() {}, warn() {} } });
   realtime = new SocketRealtimeService({ jwtSecret, restaurants: Restaurant });
   const authService = new AuthService({
     users: User,
     otpStore: new OtpStore(redis, 300),
     loginAttemptStore: new LoginAttemptStore(redis, { keyPrefix: loginKeyPrefix }),
+    emailService,
     jwtSecret,
     jwtExpiresIn: '1h',
     authPartitionRestaurantId
@@ -93,8 +100,7 @@ before(async () => {
     queueService,
     dashboardService,
     restaurants: Restaurant,
-    jwtSecret,
-    exposeOtp: true
+    jwtSecret
   });
   appServer = createServer(app);
   realtime.attach(appServer);
@@ -182,9 +188,11 @@ test('real app E2E: signup/search/book/availability and full-restaurant queue ha
     body: { name: 'E2E Customer', email, password: 'customer-password-123' }
   });
   assert.equal(signup.status, 201);
+  assert.equal(signup.body.otp, undefined, 'OTP must not be returned in signup response');
+  assert.ok(latestOtp, 'OTP must be captured by email service');
 
   const verification = await callApi('POST', '/api/auth/verify-otp', {
-    body: { email, otp: signup.body.otp }
+    body: { email, otp: latestOtp }
   });
   assert.equal(verification.status, 200);
   const login = await callApi('POST', '/api/auth/login', {

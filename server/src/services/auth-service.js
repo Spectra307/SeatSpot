@@ -1,9 +1,11 @@
+import { randomInt } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_REQUEST_LIMIT = 3;
-const OTP_REQUEST_WINDOW_SECONDS = 900;
+const OTP_REQUEST_WINDOW_SECONDS = 3600; // 1 hour
+const OTP_TTL_MINUTES = 5;
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('seatspot-invalid-password', 12);
 
 function normalizeEmail(email) {
@@ -11,14 +13,16 @@ function normalizeEmail(email) {
 }
 
 function createOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  // crypto.randomInt(min, max) — max is exclusive, so this produces [100000, 999999]
+  return String(randomInt(100000, 1000000));
 }
 
 export class AuthService {
-  constructor({ users, otpStore, loginAttemptStore, jwtSecret, jwtExpiresIn, authPartitionRestaurantId }) {
+  constructor({ users, otpStore, loginAttemptStore, emailService, jwtSecret, jwtExpiresIn, authPartitionRestaurantId }) {
     this.users = users;
     this.otpStore = otpStore;
     this.loginAttemptStore = loginAttemptStore;
+    this.emailService = emailService; // optional — no-op when absent
     this.jwtSecret = jwtSecret;
     this.jwtExpiresIn = jwtExpiresIn;
     this.authPartitionRestaurantId = authPartitionRestaurantId;
@@ -48,7 +52,15 @@ export class AuthService {
     });
     const otp = createOtp();
     await this.otpStore.save(normalizedEmail, otp);
-    return { otp };
+
+    // Send OTP email — fire-and-forget so email failure never blocks signup.
+    // In development with no SMTP config, emailService.sendOtp() logs to console.
+    // The OTP is NEVER returned in the API response.
+    if (this.emailService) {
+      void this.emailService.sendOtp(normalizedEmail, otp, { expiresMinutes: OTP_TTL_MINUTES });
+    }
+
+    return {};
   }
 
   async requestOtp({ email }) {
@@ -56,16 +68,29 @@ export class AuthService {
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
       throw Object.assign(new Error('A valid email is required'), { status: 400 });
     }
+
+    // Check 60-second cooldown before burning an hourly-cap slot.
+    if (await this.otpStore.isCooldown(normalizedEmail)) {
+      throw Object.assign(new Error('Please wait 60 seconds before requesting another code.'), { status: 429 });
+    }
+
     if (!await this.otpStore.allowRequest(normalizedEmail, OTP_REQUEST_LIMIT, OTP_REQUEST_WINDOW_SECONDS)) {
       throw Object.assign(new Error('Too many OTP requests. Try again later.'), { status: 429 });
     }
 
+    // Look up the user but return the SAME response regardless of whether the
+    // email is known — this prevents email enumeration.
     const user = await this.users.findOne({ restaurantId: this.authPartitionRestaurantId, email: normalizedEmail });
-    if (!user || user.isVerified) return { otp: undefined };
+    if (user && !user.isVerified) {
+      const otp = createOtp();
+      await this.otpStore.save(normalizedEmail, otp);
+      if (this.emailService) {
+        void this.emailService.sendOtp(normalizedEmail, otp, { expiresMinutes: OTP_TTL_MINUTES });
+      }
+    }
 
-    const otp = createOtp();
-    await this.otpStore.save(normalizedEmail, otp);
-    return { otp };
+    // Generic message — same body whether the email exists or not.
+    return {};
   }
 
   async verifyOtp({ email, otp }) {

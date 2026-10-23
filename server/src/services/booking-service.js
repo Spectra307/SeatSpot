@@ -7,7 +7,7 @@ function createHttpError(message, status) {
 }
 
 export class BookingService {
-  constructor({ tables, bookings, restaurantId, mongoClient, notificationService, socketRealtimeService, queueService }) {
+  constructor({ tables, bookings, restaurantId, mongoClient, notificationService, socketRealtimeService, queueService, emailService }) {
     this.tables = tables;
     this.bookings = bookings;
     this.restaurantId = restaurantId;
@@ -15,6 +15,7 @@ export class BookingService {
     this.notificationService = notificationService;
     this.socketRealtimeService = socketRealtimeService;
     this.queueService = queueService;
+    this.emailService = emailService; // optional — fire-and-forget; failure never blocks booking
   }
 
   async reserveTable({ tableId, userId, partySize, startsAt, source = 'customer' }) {
@@ -153,6 +154,7 @@ export class BookingService {
         tableId: booking.tableId.toString(),
         status: booking.status
       });
+      this.socketRealtimeService?.broadcastBookingUpdate(booking.restaurantId.toString(), 'cancelled', booking);
     } catch {
       // Realtime delivery must not affect a committed cancellation.
     }
@@ -177,6 +179,22 @@ export class BookingService {
     } catch (error) {
       console.error('Queue promotion after cancellation failed:', error?.message ?? error);
     }
+
+    // Fire-and-forget booking cancellation email.
+    if (this.emailService && this.users) {
+      try {
+        const user = await this.users.findById(userId).select('email name').lean();
+        if (user?.email) {
+          this.emailService.sendBookingCancellation(user.email, {
+            customerName: user.name,
+            restaurantId: booking.restaurantId.toString(),
+            startsAt: booking.startsAt
+          });
+        }
+      } catch {
+        // Email lookup failed — swallow silently.
+      }
+    }
   }
 
   async _publishBooking(booking, userId) {
@@ -187,6 +205,7 @@ export class BookingService {
         tableId: booking.tableId.toString(),
         status: booking.status
       });
+      this.socketRealtimeService?.broadcastBookingUpdate(this.restaurantId.toString(), 'created', booking);
     } catch {
       // Realtime delivery must not affect a committed reservation.
     }
@@ -212,5 +231,23 @@ export class BookingService {
       restaurantId: this.restaurantId.toString(),
       bookingId: booking._id.toString()
     });
+
+    // Fire-and-forget booking confirmation email.
+    // A failure here must never undo or delay a committed booking.
+    if (this.emailService && this.users) {
+      try {
+        const user = await this.users.findById(userId).select('email name').lean();
+        if (user?.email) {
+          this.emailService.sendBookingConfirmation(user.email, {
+            customerName: user.name,
+            restaurantId: this.restaurantId.toString(),
+            partySize: booking.partySize,
+            startsAt: booking.startsAt
+          });
+        }
+      } catch {
+        // Email lookup failed — swallow silently.
+      }
+    }
   }
 }
