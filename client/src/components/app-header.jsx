@@ -21,7 +21,7 @@ export function AppHeader({ active = 'restaurants' }) {
         <span className="text-[17px] font-bold">seat<span className="text-primary">spot</span></span>
       </Link>
       <nav className="app-nav" aria-label="Main navigation">
-        <Link className={active === 'restaurants' ? 'active' : ''} to="/restaurants"><Search size={15} /> Find a table</Link>
+        {claims?.role !== 'staff' && <Link className={active === 'restaurants' ? 'active' : ''} to="/restaurants"><Search size={15} /> Find a table</Link>}
         {claims?.role !== 'staff' && <Link className={active === 'bookings' ? 'active' : ''} to="/bookings"><CalendarClock size={15} /> My bookings</Link>}
         {claims?.role === 'staff' && <Link className={active === 'staff' ? 'active' : ''} to={`/staff/${claims.restaurantId}`}>Staff operations</Link>}
       </nav>

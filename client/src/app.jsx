@@ -17,12 +17,19 @@ function RequireAuth({ children }) {
   return token ? children : <Navigate to="/auth" replace />;
 }
 
+function RequireCustomer({ children }) {
+  const { token, claims } = useAuth();
+  if (!token) return <Navigate to="/auth" replace />;
+  if (claims?.role === 'staff') return <Navigate to={claims.restaurantId ? `/staff/${claims.restaurantId}` : '/'} replace />;
+  return children;
+}
+
 export function App() {
   return <Routes>
     <Route path="/auth" element={<AuthPage />} />
-    <Route path="/restaurants" element={<RequireAuth><RestaurantListPage /></RequireAuth>} />
-    <Route path="/restaurants/:restaurantId" element={<RequireAuth><RestaurantDetailPage /></RequireAuth>} />
-    <Route path="/bookings" element={<RequireAuth><BookingsPage /></RequireAuth>} />
+    <Route path="/restaurants" element={<RequireCustomer><RestaurantListPage /></RequireCustomer>} />
+    <Route path="/restaurants/:restaurantId" element={<RequireCustomer><RestaurantDetailPage /></RequireCustomer>} />
+    <Route path="/bookings" element={<RequireCustomer><BookingsPage /></RequireCustomer>} />
     <Route path="/staff/:restaurantId" element={<RequireAuth><StaffDashboardPage /></RequireAuth>} />
     <Route path="/" element={<HomeRedirect />} />
     <Route path="*" element={<Navigate to="/" replace />} />

@@ -430,14 +430,7 @@ export class DashboardService {
         if (!table) throw createHttpError('Table not found', 404);
 
         if (status === 'available') {
-          const activeBooking = await this.bookings.findOne({
-            restaurantId,
-            tableId,
-            status: 'confirmed'
-          }).session(session).select('_id').lean();
-          if (activeBooking) {
-            throw createHttpError('Cannot make a table available while it has a confirmed booking', 409);
-          }
+          // Allow freeing table even if there is a confirmed booking
         }
 
         updatedTable = await this.tables.findOneAndUpdate(

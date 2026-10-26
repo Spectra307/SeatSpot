@@ -480,7 +480,7 @@ export function StaffDashboardPage() {
                             onChange={(event) => void updateTableStatus(table, event.target.value)}
                           >
                             <option value="available">Available</option>
-                            <option value="reserved" disabled>Reserved</option>
+                            <option value="reserved">Reserved</option>
                             <option value="occupied">Occupied</option>
                             <option value="unavailable">Unavailable</option>
                           </select>
