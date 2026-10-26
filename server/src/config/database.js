@@ -1,8 +1,17 @@
 import mongoose from 'mongoose';
 
 export async function connectDatabase({ mongoUri, mongoDbName }) {
-  await mongoose.connect(mongoUri, { dbName: mongoDbName });
-  return mongoose.connection;
+  try {
+    await mongoose.connect(mongoUri, {
+      dbName: mongoDbName,
+      serverSelectionTimeoutMS: 10000
+    });
+    console.info('[SeatSpot] MongoDB connected');
+    return mongoose.connection;
+  } catch (error) {
+    console.error('[SeatSpot] MongoDB connection failed:', error?.message ?? error);
+    throw error;
+  }
 }
 
 export function databaseStatus() {

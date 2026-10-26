@@ -8,11 +8,11 @@ import { User } from '../src/models/user.js';
 
 dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
 
-const mongoUri = process.env.MONGO_URI ?? process.env.MONGODB_URI;
+const mongoUri = process.env.MONGODB_URI ?? process.env.MONGO_URI;
 const mongoDbName = process.env.MONGODB_DB_NAME ?? 'seatspot';
 const { STAFF_NAME: name, STAFF_EMAIL: emailValue, STAFF_PASSWORD: password, STAFF_RESTAURANT_ID: restaurantIdValue } = process.env;
 
-if (!mongoUri) throw new Error('MONGO_URI is required');
+if (!mongoUri) throw new Error('MONGODB_URI is required');
 if (!name?.trim() || !emailValue?.trim() || String(password ?? '').length < 8 || !restaurantIdValue) {
   throw new Error('STAFF_NAME, STAFF_EMAIL, STAFF_PASSWORD (8+ characters), and STAFF_RESTAURANT_ID are required');
 }

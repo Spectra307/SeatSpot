@@ -21,11 +21,12 @@ function availabilitySummary(payload = {}) {
 }
 
 export class SocketRealtimeService {
-  constructor({ jwtSecret, restaurants, connectionLimitPerMinute = 5, eventLimitPerMinute = 20 }) {
+  constructor({ jwtSecret, restaurants, connectionLimitPerMinute = 5, eventLimitPerMinute = 20, corsOrigins = [] }) {
     this.jwtSecret = jwtSecret;
     this.restaurants = restaurants;
     this.connectionLimitPerMinute = connectionLimitPerMinute;
     this.eventLimitPerMinute = eventLimitPerMinute;
+    this.corsOrigins = corsOrigins;
     this.io = null;
     this.connectionBuckets = new Map();
     this.socketState = new Map();
@@ -33,8 +34,9 @@ export class SocketRealtimeService {
   }
 
   attach(server, options = {}) {
+    const allowedOrigins = options.corsOrigins ?? this.corsOrigins;
     const io = new Server(server, {
-      cors: { origin: options.corsOrigin ?? '*' },
+      cors: allowedOrigins.length > 0 ? { origin: allowedOrigins } : undefined,
       transports: ['websocket', 'polling']
     });
 

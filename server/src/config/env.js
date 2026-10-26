@@ -5,14 +5,35 @@ dotenv.config({ path: fileURLToPath(new URL('../../../.env', import.meta.url)), 
 
 const required = ['JWT_SECRET'];
 
+function trimTrailingSlash(value) {
+  return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : '';
+}
+
+function resolveRedisUrl() {
+  if (process.env.REDIS_URL) return process.env.REDIS_URL;
+
+  const host = process.env.REDIS_HOST ?? '127.0.0.1';
+  const port = process.env.REDIS_PORT ?? '6379';
+  const password = process.env.REDIS_PASSWORD
+    ? `:${encodeURIComponent(process.env.REDIS_PASSWORD)}@`
+    : '';
+  return `redis://${password}${host}:${port}`;
+}
+
 export function getConfig() {
-  const mongoUri = process.env.MONGO_URI ?? process.env.MONGODB_URI;
-  const redisUrl = process.env.REDIS_URL ?? (process.env.REDIS_PASSWORD
-    ? `redis://:${encodeURIComponent(process.env.REDIS_PASSWORD)}@127.0.0.1:6379`
-    : undefined);
+  const env = process.env.NODE_ENV ?? 'development';
+  const mongoUri = process.env.MONGODB_URI ?? process.env.MONGO_URI;
+  const redisUrl = resolveRedisUrl();
+
   const missing = required.filter((key) => !process.env[key]);
-  if (!mongoUri) missing.push('MONGO_URI');
-  if (!redisUrl) missing.push('REDIS_URL or REDIS_PASSWORD');
+  if (!mongoUri) missing.push('MONGODB_URI');
+
+  const configuredOrigin = trimTrailingSlash(process.env.CLIENT_ORIGIN);
+  if (env === 'production') {
+    for (const key of ['REDIS_URL', 'CLIENT_ORIGIN', 'EMAIL_FROM', 'BREVO_API_KEY']) {
+      if (!process.env[key]) missing.push(key);
+    }
+  }
   if (missing.length > 0) {
     throw new Error(`Missing required environment variable(s): ${missing.join(', ')}`);
   }
@@ -22,8 +43,15 @@ export function getConfig() {
     throw new Error('PORT must be an integer from 1 to 65535');
   }
 
+  const clientOrigins = [];
+  if (configuredOrigin) clientOrigins.push(configuredOrigin);
+  if (env !== 'production') {
+    const localOrigin = 'http://localhost:5173';
+    if (!clientOrigins.includes(localOrigin)) clientOrigins.push(localOrigin);
+  }
+
   return Object.freeze({
-    env: process.env.NODE_ENV ?? 'development',
+    env,
     port,
     mongoUri,
     mongoDbName: process.env.MONGODB_DB_NAME ?? 'seatspot',
@@ -33,12 +61,8 @@ export function getConfig() {
     otpTtlSeconds: Number(process.env.OTP_TTL_SECONDS ?? 300),
     authPartitionRestaurantId: process.env.AUTH_PARTITION_RESTAURANT_ID ?? '000000000000000000000001',
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
-    // SMTP — all optional. When SMTP_HOST is absent the email service falls
-    // back to a dev-console log in development and a silent no-op in production.
-    smtpHost: process.env.SMTP_HOST,
-    smtpPort: process.env.SMTP_PORT ?? '587',
-    smtpUser: process.env.SMTP_USER,
-    smtpPass: process.env.SMTP_PASS,
-    mailFrom: process.env.MAIL_FROM ?? 'SeatSpot <no-reply@seatspot.app>'
+    clientOrigins,
+    emailFrom: process.env.EMAIL_FROM ?? process.env.MAIL_FROM,
+    brevoApiKey: process.env.BREVO_API_KEY
   });
 }

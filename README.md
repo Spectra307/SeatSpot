@@ -304,7 +304,7 @@ The project uses Node's built-in test runner (`node --test`) with integration te
 
 ### Setup
 
-1. Copy `.env.example` to `.env` in the repository root and set `JWT_SECRET` and `REDIS_PASSWORD`. The example `MONGO_URI` already points at the replica set started below.
+1. Copy `.env.example` to `.env` in the repository root and set `JWT_SECRET` and `REDIS_PASSWORD`. The example `MONGODB_URI` already points at the replica set started below.
 2. Start MongoDB (as a replica set, required for transactions) and Redis:
    ```
    docker compose up -d
@@ -353,27 +353,33 @@ The server waits for MongoDB and Redis to be reachable before listening. A healt
 
 The restaurant directory offers a search radius, closest-first or most-tables-open sorting, and an open-tables-only filter. It subscribes to the `availability:{restaurantId}` socket rooms for the listed restaurants, so table counts and the header indicator update without a refresh.
 
-### Configuring SMTP (Email Service)
+### Configuring Email (Brevo)
 
-SeatSpot sends transactional emails for signup OTP verification, booking confirmations, and booking cancellations using a swappable Nodemailer service (`server/src/services/emailService.js`).
+SeatSpot sends transactional emails for signup OTP verification, booking confirmations, and booking cancellations through Brevo's HTTP API (`server/src/services/emailService.js`). No SMTP connection is required.
 
 To configure email delivery, set these variables in `.env`:
 
 ```env
-SMTP_HOST=smtp.your-provider.com
-SMTP_PORT=587
-SMTP_USER=your-smtp-username
-SMTP_PASS=your-smtp-password
-MAIL_FROM=SeatSpot <no-reply@seatspot.app>
+EMAIL_FROM=no-reply@your-verified-domain.com
+BREVO_API_KEY=your-brevo-api-key
 ```
 
-- **Development fallback**: If `SMTP_HOST` is left blank in development (`NODE_ENV=development`), the service prints the generated 6-digit OTP directly to the server console, allowing immediate testing without an SMTP server.
-- **Provider compatibility**: Compatible with standard SMTP services:
-  - **Resend**: `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_USER=resend`, `SMTP_PASS=<api_key>`
-  - **SendGrid**: `SMTP_HOST=smtp.sendgrid.net`, `SMTP_PORT=587`, `SMTP_USER=apikey`, `SMTP_PASS=<api_key>`
+- **Development fallback**: If `EMAIL_FROM` or `BREVO_API_KEY` is left blank in development (`NODE_ENV=development`), the service prints the generated 6-digit OTP directly to the server console, allowing immediate testing without an email provider.
+- `EMAIL_FROM` must be a sender address verified in Brevo.
+
+### Deploying to Render
+
+This repository deploys as a single Render Web Service. Express serves the Vite build from `client/dist`, the REST API under `/api`, and Socket.IO under `/socket.io`.
+
+- **Root Directory**: repository root (leave blank)
+- **Build Command**: `npm run build`
+- **Start Command**: `npm start`
+
+Set `NODE_ENV=production` and configure `MONGODB_URI`, `REDIS_URL` (either `redis://` or `rediss://`), `JWT_SECRET`, `CLIENT_ORIGIN` (for example `https://seatspot.onrender.com`, no trailing slash), `EMAIL_FROM`, and `BREVO_API_KEY` in the Render dashboard. Do not commit a production `.env` file.
 
 ### API surface summary
 
+- `GET /api/health` — unauthenticated health check (`200 { "status": "ok" }`)
 - `POST /api/auth/signup`, `/resend-otp`, `/verify-otp`, `/login` — account creation, OTP resend (with 60s cooldown & hourly cap), OTP verification, authentication
 - `GET /api/restaurants/nearby` — geo discovery with `radiusMeters`, `sort`, `openOnly`, `limit`
 - `GET /api/restaurants/:restaurantId`, `/availability`, `/tables` — discovery (authenticated)

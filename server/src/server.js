@@ -41,7 +41,11 @@ async function start() {
   await connectDatabase(config);
   const redis = await connectRedis(config.redisUrl);
   const emailService = createEmailService(config);
-  const socketRealtimeService = new SocketRealtimeService({ jwtSecret: config.jwtSecret, restaurants: Restaurant });
+  const socketRealtimeService = new SocketRealtimeService({
+    jwtSecret: config.jwtSecret,
+    restaurants: Restaurant,
+    corsOrigins: config.clientOrigins
+  });
   const notificationService = new NotificationService();
   const authService = new AuthService({
     users: User,
@@ -88,10 +92,11 @@ async function start() {
     dashboardService,
     restaurants: Restaurant,
     jwtSecret: config.jwtSecret,
-    bookings: Booking
+    bookings: Booking,
+    allowedOrigins: config.clientOrigins
   });
   const server = createServer(app);
-  socketRealtimeService.attach(server);
+  socketRealtimeService.attach(server, { corsOrigins: config.clientOrigins });
 
   server.listen(config.port, () => {
     console.info(`SeatSpot API listening on port ${config.port}`);

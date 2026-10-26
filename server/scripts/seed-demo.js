@@ -9,10 +9,10 @@ import { User } from '../src/models/user.js';
 
 dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
 
-const mongoUri = process.env.MONGO_URI ?? process.env.MONGODB_URI;
+const mongoUri = process.env.MONGODB_URI ?? process.env.MONGO_URI;
 const mongoDbName = process.env.MONGODB_DB_NAME ?? 'seatspot';
 const staffPassword = process.env.DEMO_STAFF_PASSWORD;
-if (!mongoUri) throw new Error('MONGO_URI is required');
+if (!mongoUri) throw new Error('MONGODB_URI is required');
 if (String(staffPassword ?? '').length < 8) throw new Error('DEMO_STAFF_PASSWORD must contain at least 8 characters');
 
 const demos = [

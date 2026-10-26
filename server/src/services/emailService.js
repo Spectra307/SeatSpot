@@ -1,20 +1,27 @@
-/**
- * emailService.js — Nodemailer-based transactional email delivery.
- *
- * The transport is created once and injected through the constructor so it can
- * be swapped for any compatible transport (Resend, SendGrid via nodemailer-
- * sendgrid, AWS SES, etc.) without touching this file.
- *
- * If SMTP credentials are absent in development the service falls back to a
- * no-op that logs the OTP to the server console.  In production, missing SMTP
- * config causes every send to fail silently (the caller must fire-and-forget).
- */
+const brevoEndpoint = 'https://api.brevo.com/v3/smtp/email';
 
-import nodemailer from 'nodemailer';
+export async function sendEmail(to, subject, html) {
+  const response = await fetch(brevoEndpoint, {
+    method: 'POST',
+    headers: {
+      'api-key': process.env.BREVO_API_KEY,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      sender: { name: 'SeatSpot', email: process.env.EMAIL_FROM },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html
+    })
+  });
 
-// ---------------------------------------------------------------------------
-// HTML helpers
-// ---------------------------------------------------------------------------
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Brevo email request failed (${response.status}): ${details}`);
+  }
+
+  return response;
+}
 
 function htmlWrap(title, body) {
   return `<!DOCTYPE html>
@@ -134,59 +141,39 @@ function bookingCancelTemplate({ customerName, restaurantName, tableLabel, start
   `);
 }
 
-// ---------------------------------------------------------------------------
-// EmailService
-// ---------------------------------------------------------------------------
-
 export class EmailService {
-  /**
-   * @param {object} options
-   * @param {object|null} options.transport  A nodemailer transport (or null for no-op).
-   * @param {string}      options.from       Sender address, e.g. "SeatSpot <no-reply@seatspot.app>"
-   * @param {string}      [options.env]      NODE_ENV – controls dev console fallback.
-   * @param {object}      [options.logger]   Optional logger (defaults to console).
-   */
-  constructor({ transport = null, from, env = 'development', logger = console } = {}) {
-    this.transport = transport;
-    this.from = from ?? 'SeatSpot <no-reply@seatspot.app>';
+  constructor({
+    sender = sendEmail,
+    env = 'development',
+    logger = console,
+    configured = Boolean(process.env.BREVO_API_KEY && process.env.EMAIL_FROM)
+  } = {}) {
+    this.sender = sender;
     this.env = env;
     this.logger = logger;
+    this.configured = configured;
   }
 
-  // -------------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------------
-
-  /**
-   * Send a verification OTP to a new user. Never throws.
-   * @returns {Promise<boolean>} true when the code was handed to SMTP (or logged
-   *   to the dev console), false when delivery was skipped or failed.
-   */
   async sendOtp(toEmail, otp, { expiresMinutes = 5 } = {}) {
-    // In development with no SMTP config, print to console ONLY.
-    if (!this.transport) {
+    if (!this.configured) {
       if (this.env !== 'production') {
-        // eslint-disable-next-line no-console
         this.logger.error(`[SeatSpot DEV] OTP for ${toEmail}: ${otp}`);
-        // eslint-disable-next-line no-console
-        this.logger.error('[SeatSpot] SMTP not configured: OTPs print to this console only');
+        this.logger.error('[SeatSpot] Brevo not configured: OTPs print to this console only');
         return true;
       }
       return false;
     }
+
     try {
-      await this._send({
-        to: toEmail,
-        subject: 'Your SeatSpot verification code',
-        html: otpTemplate({ otp, expiresMinutes })
-      });
+      await this._send(
+        toEmail,
+        'Your SeatSpot verification code',
+        otpTemplate({ otp, expiresMinutes })
+      );
       return true;
     } catch (error) {
       try {
         this.logger.error('[SeatSpot] OTP email delivery failed for %s:', toEmail, error?.message ?? error);
-        if (error?.code) {
-          this.logger.error('[SeatSpot] SMTP error code:', error.code);
-        }
       } catch {
         // swallow
       }
@@ -194,73 +181,54 @@ export class EmailService {
     }
   }
 
-  /** Fire-and-forget confirmation email. Never throws. */
   sendBookingConfirmation(toEmail, data) {
-    void this._sendSafe({
-      to: toEmail,
-      subject: `Booking confirmed – ${data.restaurantName ?? 'SeatSpot'}`,
-      html: bookingConfirmTemplate(data)
-    });
+    void this._sendSafe(
+      toEmail,
+      `Booking confirmed – ${data.restaurantName ?? 'SeatSpot'}`,
+      bookingConfirmTemplate(data)
+    );
   }
 
-  /** Fire-and-forget cancellation email. Never throws. */
   sendBookingCancellation(toEmail, data) {
-    void this._sendSafe({
-      to: toEmail,
-      subject: `Booking cancelled – ${data.restaurantName ?? 'SeatSpot'}`,
-      html: bookingCancelTemplate(data)
-    });
+    void this._sendSafe(
+      toEmail,
+      `Booking cancelled – ${data.restaurantName ?? 'SeatSpot'}`,
+      bookingCancelTemplate(data)
+    );
   }
 
-  // -------------------------------------------------------------------------
-  // Internal helpers
-  // -------------------------------------------------------------------------
-
-  async _send({ to, subject, html }) {
-    if (!this.transport) return;
-    await this.transport.sendMail({ from: this.from, to, subject, html });
+  async _send(to, subject, html) {
+    if (!this.configured) return;
+    await this.sender(to, subject, html);
   }
 
-  async _sendSafe(message) {
+  async _sendSafe(to, subject, html) {
     try {
-      await this._send(message);
+      await this._send(to, subject, html);
     } catch (error) {
       try {
         this.logger.warn('[SeatSpot] Email delivery failed:', error?.message ?? error);
       } catch {
-        // logger itself failed — swallow silently
+        // swallow
       }
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
+export function createEmailService({ env, brevoApiKey, emailFrom, logger = console } = {}) {
+  const effectiveEnv = env ?? process.env.NODE_ENV ?? 'development';
+  const configured = Boolean(brevoApiKey && emailFrom);
 
-/**
- * Build an EmailService from environment config.
- * Returns a no-op service when SMTP_HOST is absent (safe for dev / CI).
- */
-export function createEmailService({ env, smtpHost, smtpPort, smtpUser, smtpPass, mailFrom } = {}) {
-  let transport = null;
-
-  if (smtpHost) {
-    transport = nodemailer.createTransport({
-      host: smtpHost,
-      port: Number(smtpPort ?? 587),
-      secure: Number(smtpPort ?? 587) === 465,
-      auth: smtpUser ? { user: smtpUser, pass: smtpPass } : undefined
-    });
-  } else if ((env ?? process.env.NODE_ENV) === 'production') {
-    throw new Error('SMTP_HOST must be configured in production');
-  } else if ((env ?? process.env.NODE_ENV) !== 'test') {
+  if (!configured && effectiveEnv === 'production') {
+    throw new Error('BREVO_API_KEY and EMAIL_FROM must be configured in production');
+  }
+  if (!configured && effectiveEnv !== 'test') {
     try {
-      console.error('[SeatSpot] SMTP not configured: OTPs print to this console only');
+      logger.error('[SeatSpot] Brevo not configured: OTPs print to this console only');
     } catch {
       // ignore
     }
   }
 
-  return new EmailService({ transport, from: mailFrom, env });
+  return new EmailService({ env: effectiveEnv, logger, configured });
 }
