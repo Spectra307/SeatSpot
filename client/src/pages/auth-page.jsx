@@ -16,6 +16,7 @@ import { Input } from '../components/ui/input.jsx';
 // ---------------------------------------------------------------------------
 const OTP_LENGTH = 6;
 const RESEND_COOLDOWN_SECONDS = 60;
+const PENDING_EMAIL_KEY = 'seatspot.pendingEmail';
 
 function OtpInput({ value, onChange }) {
   const refs = useRef([]);
@@ -77,25 +78,26 @@ function OtpInput({ value, onChange }) {
   );
 }
 
-function ResendCountdown({ onResend, busy }) {
-  const [seconds, setSeconds] = useState(RESEND_COOLDOWN_SECONDS);
-  const [canResend, setCanResend] = useState(false);
+function ResendCountdown({ onResend, busy, initialSeconds = RESEND_COOLDOWN_SECONDS }) {
+  const [seconds, setSeconds] = useState(initialSeconds);
+  const canResend = seconds === 0;
 
   useEffect(() => {
-    setSeconds(RESEND_COOLDOWN_SECONDS);
-    setCanResend(false);
+    setSeconds(initialSeconds);
+  }, [initialSeconds]);
+
+  useEffect(() => {
+    if (seconds <= 0) return undefined;
     const interval = setInterval(() => {
       setSeconds((prev) => {
         if (prev <= 1) {
-          clearInterval(interval);
-          setCanResend(true);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [seconds <= 0]);
 
   return (
     <div className="resend-row">
@@ -120,20 +122,61 @@ function ResendCountdown({ onResend, busy }) {
 // ---------------------------------------------------------------------------
 // AuthPage
 // ---------------------------------------------------------------------------
+function readPendingEmail() {
+  try {
+    return localStorage.getItem(PENDING_EMAIL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export function AuthPage() {
   const [searchParams] = useSearchParams();
-  const [mode, setMode] = useState('login');
+  const [storedPendingEmail] = useState(readPendingEmail);
+  const [mode, setMode] = useState(storedPendingEmail ? 'verify' : 'login');
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
-  const [pendingEmail, setPendingEmail] = useState('');
+  const [pendingEmail, setPendingEmail] = useState(storedPendingEmail);
   const [otpValue, setOtpValue] = useState('');
   const [restaurantId, setRestaurantId] = useState('');
   const [formError, setFormError] = useState('');
   const [resendKey, setResendKey] = useState(0); // bump to reset countdown
+  // When resuming a pending verification after a reload, let the user request a
+  // code immediately — the server still enforces the real cooldown.
+  const [resendSeconds, setResendSeconds] = useState(storedPendingEmail ? 0 : RESEND_COOLDOWN_SECONDS);
   const { saveToken } = useAuth();
   const navigate = useNavigate();
   const expired = searchParams.get('reason') === 'expired';
+
+  function rememberPendingEmail(value) {
+    const nextEmail = String(value ?? '').trim().toLowerCase();
+    try {
+      localStorage.setItem(PENDING_EMAIL_KEY, nextEmail);
+    } catch {
+      // ignore storage failures (private mode etc.)
+    }
+    setPendingEmail(nextEmail);
+    setEmail(nextEmail);
+    setOtpValue('');
+    setResendKey((key) => key + 1);
+    setMode('verify');
+  }
+
+  function clearPendingEmail() {
+    try {
+      localStorage.removeItem(PENDING_EMAIL_KEY);
+    } catch {
+      // ignore
+    }
+    setPendingEmail('');
+  }
+
+  function startVerification(value, { seconds = 0, message = '' } = {}) {
+    rememberPendingEmail(value);
+    setResendSeconds(seconds);
+    setFormError(message);
+  }
 
   // Classify backend OTP errors for the user
   function otpErrorMessage(error) {
@@ -152,38 +195,53 @@ export function AuthPage() {
 
     try {
       if (mode === 'signup') {
-        await api('/auth/signup', {
+        const signupEmail = String(data.get('email') ?? '').trim().toLowerCase();
+        const signupResult = await api('/auth/signup', {
           method: 'POST',
-          body: JSON.stringify({ name: data.get('name'), email: data.get('email'), password: data.get('password') })
+          body: JSON.stringify({ name: data.get('name'), email: signupEmail, password: data.get('password') })
         });
-        setPendingEmail(String(data.get('email')));
-        setEmail(String(data.get('email')));
-        setOtpValue('');
-        setResendKey(0);
-        setMode('verify');
-        toast.success('Account created. Check your email for the verification code.');
+        startVerification(signupEmail, { seconds: RESEND_COOLDOWN_SECONDS });
+        if (signupResult?.emailDispatched === false) {
+          toast.error('Account created but verification email could not be sent', {
+            description: 'Use "Send a new code" below, or check the server logs.'
+          });
+        } else {
+          toast.success('Account created. Check your email for the verification code.');
+        }
       } else if (mode === 'verify') {
         const result = await api('/auth/verify-otp', {
           method: 'POST',
           body: JSON.stringify({ email: pendingEmail, otp: otpValue })
         });
+        clearPendingEmail();
         finishLogin(result.token);
       } else {
         const credentials = { email: data.get('email'), password: data.get('password') };
         if (restaurantId.trim()) credentials.restaurantId = restaurantId.trim();
         const result = await api('/auth/login', { method: 'POST', body: JSON.stringify(credentials) });
+        clearPendingEmail();
         finishLogin(result.token);
       }
     } catch (error) {
-      const message = mode === 'verify'
-        ? otpErrorMessage(error)
-        : error.status === 429
-          ? 'Too many attempts. Wait a moment and try again.'
-          : error.status === 401
-            ? 'Email or password is incorrect.'
-            : error.message;
-      setFormError(message);
-      toast.error(mode === 'verify' ? 'Verification failed' : error.status === 429 ? 'Rate limit reached' : 'Could not continue', { description: message });
+      if (error.status === 409 && error.payload?.code === 'EMAIL_UNVERIFIED') {
+        startVerification(data.get('email'), {
+          seconds: 0,
+          message: 'This email is already registered but not verified. Send a new code to finish signing up.'
+        });
+        toast.info('Verify your email', {
+          description: 'Send a new code to finish signing up.'
+        });
+      } else {
+        const message = mode === 'verify'
+          ? otpErrorMessage(error)
+          : error.status === 429
+            ? 'Too many attempts. Wait a moment and try again.'
+            : error.status === 401
+              ? 'Email or password is incorrect.'
+              : error.message;
+        setFormError(message);
+        toast.error(mode === 'verify' ? 'Verification failed' : error.status === 429 ? 'Rate limit reached' : 'Could not continue', { description: message });
+      }
     } finally {
       setBusy(false);
     }
@@ -203,13 +261,21 @@ export function AuthPage() {
       await api('/auth/resend-otp', { method: 'POST', body: JSON.stringify({ email: pendingEmail }) });
       setOtpValue('');
       setResendKey((k) => k + 1); // reset countdown
+      setResendSeconds(RESEND_COOLDOWN_SECONDS);
       toast.success('A new code has been sent to your email.');
     } catch (error) {
-      const message = error.status === 429
-        ? 'Please wait 60 seconds before requesting another code.'
-        : 'Could not send a new code. Please try again.';
-      setFormError(message);
-      toast.error('Could not resend', { description: message });
+      if (error.status === 429) {
+        const retryAfterSeconds = error.payload?.retryAfterSeconds ?? error.retryAfterSeconds ?? 60;
+        setResendSeconds(Number(retryAfterSeconds) > 0 ? Number(retryAfterSeconds) : 60);
+        setResendKey((k) => k + 1);
+        const message = error.payload?.error ?? error.message ?? 'Please wait before requesting another code.';
+        setFormError(message);
+        toast.error('Could not resend', { description: message });
+      } else {
+        const message = 'Could not send a new code. Please try again.';
+        setFormError(message);
+        toast.error('Could not resend', { description: message });
+      }
     } finally {
       setBusy(false);
     }
@@ -244,7 +310,7 @@ export function AuthPage() {
             <div className="auth-icon"><ShieldCheck size={20} /></div>
             <p className="eyebrow">{mode === 'verify' ? 'Verify your email' : isSignup ? 'Create your account' : 'Welcome back'}</p>
             <CardTitle className="font-display text-[27px]">{mode === 'verify' ? 'One quick check.' : isSignup ? 'Save your seat.' : 'Good to see you.'}</CardTitle>
-            <CardDescription className="mt-2 leading-6">{mode === 'verify' ? `We sent a 6-digit code to ${pendingEmail}.` : isSignup ? 'A table is better when the details are handled.' : 'Sign in to see what is available tonight.'}</CardDescription>
+            <CardDescription className="mt-2 leading-6">{mode === 'verify' ? `Enter the 6-digit code sent to ${pendingEmail}.` : isSignup ? 'A table is better when the details are handled.' : 'Sign in to see what is available tonight.'}</CardDescription>
           </header>
 
           {expired && <Alert variant="destructive" className="mb-5"><AlertDescription>Your session expired. Sign in again to continue.</AlertDescription></Alert>}
@@ -261,7 +327,7 @@ export function AuthPage() {
                 <Label>Verification code</Label>
                 <OtpInput value={otpValue} onChange={setOtpValue} />
               </Field>
-              <ResendCountdown key={resendKey} onResend={resendOtp} busy={busy} />
+              <ResendCountdown key={resendKey} onResend={resendOtp} busy={busy} initialSeconds={resendSeconds} />
             </>}
             <Button className="mt-2 w-full" size="lg" disabled={busy || (mode === 'verify' && otpValue.length < OTP_LENGTH)} type="submit">
               {busy ? 'Please wait…' : mode === 'verify' ? 'Verify and continue' : isSignup ? 'Create account' : 'Sign in'} {!busy && <ArrowRight size={17} />}
@@ -269,9 +335,12 @@ export function AuthPage() {
           </form>
 
           <div className="auth-switch">
-            {mode === 'verify' ? <button type="button" onClick={() => setMode('signup')}><ArrowLeft size={14} /> Back to sign up</button> : <>
+            {mode === 'verify' ? <>
+              <button type="button" onClick={() => { clearPendingEmail(); setFormError(''); setResendSeconds(0); setMode('signup'); }}><ArrowLeft size={14} /> Back to sign up</button>
+              <button type="button" onClick={() => { clearPendingEmail(); setFormError(''); setResendSeconds(0); setMode('login'); }}>Back to sign in</button>
+            </> : <>
               <span>{isSignup ? 'Already have an account?' : 'New to SeatSpot?'}</span>
-              <button type="button" onClick={() => { setFormError(''); setMode(isSignup ? 'login' : 'signup'); }}>{isSignup ? 'Sign in' : 'Create account'}</button>
+              <button type="button" onClick={() => { clearPendingEmail(); setFormError(''); setMode(isSignup ? 'login' : 'signup'); }}>{isSignup ? 'Sign in' : 'Create account'}</button>
             </>}
           </div>
         </div>

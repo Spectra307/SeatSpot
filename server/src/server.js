@@ -21,6 +21,21 @@ import { QueueService } from './services/queue-service.js';
 import { SocketRealtimeService } from './services/socket-realtime.js';
 import { createEmailService } from './services/emailService.js';
 
+process.on('unhandledRejection', (reason) => {
+  try {
+    console.error('[SeatSpot] Unhandled promise rejection:', reason?.message ?? reason);
+  } catch {
+    // ignore
+  }
+});
+process.on('uncaughtException', (error) => {
+  try {
+    console.error('[SeatSpot] Uncaught exception:', error?.message ?? error);
+  } catch {
+    // ignore
+  }
+});
+
 async function start() {
   const config = getConfig();
   await connectDatabase(config);

@@ -136,7 +136,6 @@ test('signup: OTP is not present in the return value', async () => {
   const service = makeService();
   const result = await service.signup({ name: 'Ada', email: 'ada@test.com', password: 'password123' });
   assert.ok(!('otp' in result), 'OTP must not appear in signup response');
-  assert.equal(Object.keys(result).length, 0, 'signup should return an empty object');
 });
 
 test('signup: OTP is delivered via emailService, not API response', async () => {
@@ -199,6 +198,7 @@ test('verifyOtp: 5 wrong attempts lock the code; sixth attempt fails even with c
 
 test('requestOtp: 60-second cooldown prevents immediate re-request', async () => {
   const store = new FakeOtpStore({ cooldownMs: 60_000 });
+  store.redis = { ttl: async () => 60, key: (e,p='code') => `otp:${p}:${e}` };
   const emailService = new FakeEmailService();
   const users = new FakeUsers();
   const service = new AuthService({ users, otpStore: store, emailService, jwtSecret: 'x', jwtExpiresIn: '1h', authPartitionRestaurantId: 'p' });
@@ -210,15 +210,16 @@ test('requestOtp: 60-second cooldown prevents immediate re-request', async () =>
   // Immediate re-request is blocked by cooldown
   await assert.rejects(
     service.requestOtp({ email: 'dave@test.com' }),
-    (err) => err.status === 429 && /60|cooldown|wait/i.test(err.message)
+    (err) => err.status === 429 && /60|cooldown|wait/i.test(err.message) && err.retryAfterSeconds !== undefined
   );
 });
 
 test('requestOtp: hourly cap (3 requests per hour) is enforced', async () => {
   const store = new FakeOtpStore({ cooldownMs: 0 }); // disable cooldown for this test
+  store.redis = { ttl: async () => 60, key: (e,p='code') => `otp:${p}:${e}` };
   const emailService = new FakeEmailService();
   const users = new FakeUsers();
-  const service = new AuthService({ users, otpStore: store, emailService, jwtSecret: 'x', jwtExpiresIn: '1h', authPartitionRestaurantId: 'p' });
+  const service = new AuthService({ users, otpSecret: undefined, otpStore: store, emailService, jwtSecret: 'x', jwtExpiresIn: '1h', authPartitionRestaurantId: 'p' });
   await users.create({ restaurantId: 'p', email: 'eve@test.com', passwordHash: 'h', isVerified: false });
 
   // 3 allowed
@@ -231,12 +232,13 @@ test('requestOtp: hourly cap (3 requests per hour) is enforced', async () => {
   store.expireCooldown('eve@test.com');
   await assert.rejects(
     service.requestOtp({ email: 'eve@test.com' }),
-    (err) => err.status === 429
+    (err) => err.status === 429 && err.code === 'OTP_RATE_LIMIT'
   );
 });
 
 test('requestOtp: unknown email returns same generic response (no enumeration)', async () => {
   const store = new FakeOtpStore({ cooldownMs: 0 });
+  store.redis = { ttl: async () => 60, key: (e,p='code') => `otp:${p}:${e}` };
   const emailService = new FakeEmailService();
   const service = makeService({ otpStore: store, emailService });
 
@@ -250,6 +252,7 @@ test('requestOtp: unknown email returns same generic response (no enumeration)',
 
 test('verifyOtp: correct OTP issues a valid JWT', async () => {
   const store = new FakeOtpStore();
+  store.redis = { ttl: async () => 60, key: (e,p='code') => `otp:${p}:${e}` };
   const emailService = new FakeEmailService();
   const users = new FakeUsers();
   const service = new AuthService({ users, otpStore: store, emailService, jwtSecret: 'test-secret', jwtExpiresIn: '1h', authPartitionRestaurantId: 'p' });
@@ -258,4 +261,84 @@ test('verifyOtp: correct OTP issues a valid JWT', async () => {
 
   const token = await service.verifyOtp({ email: 'frank@test.com', otp });
   assert.ok(typeof token === 'string' && token.split('.').length === 3, 'should return a JWT');
+});
+
+test('requestOtp: after the cooldown a fresh code replaces the previous one', async () => {
+  const store = new FakeOtpStore({ cooldownMs: 60_000 });
+  store.redis = { ttl: async () => 60, key: (e, p = 'code') => `otp:${p}:${e}` };
+  const emailService = new FakeEmailService();
+  const users = new FakeUsers();
+  const service = new AuthService({ users, otpStore: store, emailService, jwtSecret: 'x', jwtExpiresIn: '1h', authPartitionRestaurantId: 'p' });
+
+  await service.signup({ name: 'Hana', email: 'hana@test.com', password: 'password123' });
+  assert.equal(emailService.sent.length, 1);
+  const firstOtp = emailService.sent[0].otp;
+
+  store.expireCooldown('hana@test.com');
+  await service.requestOtp({ email: 'hana@test.com' });
+
+  assert.equal(emailService.sent.length, 2, 'resend must deliver a new email');
+  const secondOtp = emailService.sent[1].otp;
+  assert.match(secondOtp, /^\d{6}$/);
+
+  // The superseded code must no longer work (unless the 6-digit generator
+  // happened to collide, which is astronomically unlikely).
+  if (firstOtp !== secondOtp) {
+    await assert.rejects(
+      service.verifyOtp({ email: 'hana@test.com', otp: firstOtp }),
+      (err) => err.status === 400
+    );
+  }
+
+  const token = await service.verifyOtp({ email: 'hana@test.com', otp: secondOtp });
+  assert.equal(typeof token, 'string');
+});
+
+test('requestOtp: verified accounts do not receive another code', async () => {
+  const store = new FakeOtpStore({ cooldownMs: 0 });
+  store.redis = { ttl: async () => 60, key: (e, p = 'code') => `otp:${p}:${e}` };
+  const emailService = new FakeEmailService();
+  const users = new FakeUsers();
+  const service = new AuthService({ users, otpStore: store, emailService, jwtSecret: 'x', jwtExpiresIn: '1h', authPartitionRestaurantId: 'p' });
+
+  await service.signup({ name: 'Ira', email: 'ira@test.com', password: 'password123' });
+  await service.verifyOtp({ email: 'ira@test.com', otp: emailService.sent[0].otp });
+  const sentBefore = emailService.sent.length;
+
+  const result = await service.requestOtp({ email: 'ira@test.com' });
+  assert.deepEqual(result, {});
+  assert.equal(emailService.sent.length, sentBefore, 'verified users must not get another OTP email');
+});
+
+test('signup: an unverified duplicate email is sent back to verification', async () => {
+  const service = makeService();
+  await service.signup({ name: 'Jo', email: 'jo@test.com', password: 'password123' });
+  await assert.rejects(
+    service.signup({ name: 'Jo', email: 'jo@test.com', password: 'password123' }),
+    (err) => err.status === 409 && err.code === 'EMAIL_UNVERIFIED'
+  );
+});
+
+test('login: unverified accounts get the same generic 401 as unknown emails', async () => {
+  const service = makeService();
+  await service.signup({ name: 'Kim', email: 'kim@test.com', password: 'password123' });
+  await assert.rejects(
+    service.login({ email: 'kim@test.com', password: 'password123' }),
+    (err) => err.status === 401 && err.message === 'Email or password is incorrect'
+  );
+  await assert.rejects(
+    service.login({ email: 'nobody@test.com', password: 'password123' }),
+    (err) => err.status === 401 && err.message === 'Email or password is incorrect'
+  );
+});
+
+test('sendOtp failure is isolated and does not throw from requestOtp', async () => {
+  const store = new FakeOtpStore({ cooldownMs: 0 });
+  store.redis = { ttl: async () => 60, key: (e,p='code') => `otp:${p}:${e}` };
+  const emailService = { async sendOtp() { throw new Error('SMTP down'); } };
+  const users = new FakeUsers();
+  const service = new AuthService({ users, otpStore: store, emailService, jwtSecret: 'x', jwtExpiresIn: '1h', authPartitionRestaurantId: 'p' });
+  await users.create({ restaurantId: 'p', email: 'grace@test.com', passwordHash: 'h', isVerified: false });
+  const result = await service.requestOtp({ email: 'grace@test.com' });
+  assert.deepEqual(result, {});
 });

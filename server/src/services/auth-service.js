@@ -35,8 +35,18 @@ export class AuthService {
     }
 
     const query = { restaurantId: this.authPartitionRestaurantId, email: normalizedEmail };
-    if (await this.users.findOne(query)) {
-      throw Object.assign(new Error('An account with this email already exists'), { status: 409 });
+    const existing = await this.users.findOne(query);
+    if (existing) {
+      if (!existing.isVerified) {
+        // The account exists but never completed verification. Send the user
+        // back to the verify screen so they can request a fresh code instead
+        // of hitting a dead-end "already exists" error.
+        throw Object.assign(
+          new Error('This email is registered but not verified yet. Request a new code to continue.'),
+          { status: 409, code: 'EMAIL_UNVERIFIED' }
+        );
+      }
+      throw Object.assign(new Error('An account with this email already exists'), { status: 409, code: 'EMAIL_EXISTS' });
     }
     if (!await this.otpStore.allowRequest(normalizedEmail, OTP_REQUEST_LIMIT, OTP_REQUEST_WINDOW_SECONDS)) {
       throw Object.assign(new Error('Too many OTP requests. Try again later.'), { status: 429 });
@@ -56,11 +66,19 @@ export class AuthService {
     // Send OTP email — fire-and-forget so email failure never blocks signup.
     // In development with no SMTP config, emailService.sendOtp() logs to console.
     // The OTP is NEVER returned in the API response.
+    let emailDispatched = false;
     if (this.emailService) {
-      void this.emailService.sendOtp(normalizedEmail, otp, { expiresMinutes: OTP_TTL_MINUTES });
+      try {
+        const result = await Promise.resolve(
+          this.emailService.sendOtp(normalizedEmail, otp, { expiresMinutes: OTP_TTL_MINUTES })
+        );
+        emailDispatched = result !== false;
+      } catch {
+        emailDispatched = false;
+      }
     }
 
-    return {};
+    return { emailDispatched };
   }
 
   async requestOtp({ email }) {
@@ -71,21 +89,43 @@ export class AuthService {
 
     // Check 60-second cooldown before burning an hourly-cap slot.
     if (await this.otpStore.isCooldown(normalizedEmail)) {
-      throw Object.assign(new Error('Please wait 60 seconds before requesting another code.'), { status: 429 });
-    }
-
-    if (!await this.otpStore.allowRequest(normalizedEmail, OTP_REQUEST_LIMIT, OTP_REQUEST_WINDOW_SECONDS)) {
-      throw Object.assign(new Error('Too many OTP requests. Try again later.'), { status: 429 });
+      let retryAfterSeconds = 60;
+      try {
+        if (this.otpStore.redis) {
+          const ttl = await this.otpStore.redis.ttl(this.otpStore.key(normalizedEmail, 'cooldown'));
+          if (typeof ttl === 'number' && ttl > 0) {
+            retryAfterSeconds = ttl;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      const error = Object.assign(new Error('Please wait 60 seconds before requesting another code.'), { status: 429, retryAfterSeconds, code: 'OTP_COOLDOWN' });
+      error.headers = { 'Retry-After': String(retryAfterSeconds) };
+      throw error;
     }
 
     // Look up the user but return the SAME response regardless of whether the
     // email is known — this prevents email enumeration.
     const user = await this.users.findOne({ restaurantId: this.authPartitionRestaurantId, email: normalizedEmail });
-    if (user && !user.isVerified) {
-      const otp = createOtp();
-      await this.otpStore.save(normalizedEmail, otp);
-      if (this.emailService) {
-        void this.emailService.sendOtp(normalizedEmail, otp, { expiresMinutes: OTP_TTL_MINUTES });
+
+    // Do not consume an hourly-cap slot for verified or nonexistent accounts
+    if (!user || user.isVerified) {
+      return {};
+    }
+
+    if (!await this.otpStore.allowRequest(normalizedEmail, OTP_REQUEST_LIMIT, OTP_REQUEST_WINDOW_SECONDS)) {
+      const error = Object.assign(new Error('Too many OTP requests. Try again later.'), { status: 429, code: 'OTP_RATE_LIMIT' });
+      throw error;
+    }
+
+    const otp = createOtp();
+    await this.otpStore.save(normalizedEmail, otp);
+    if (this.emailService) {
+      try {
+        await Promise.resolve(this.emailService.sendOtp(normalizedEmail, otp, { expiresMinutes: OTP_TTL_MINUTES }));
+      } catch {
+        // never throw from requestOtp due to email failure
       }
     }
 
@@ -120,6 +160,8 @@ export class AuthService {
       ? await this.loginAttemptStore.isLocked(normalizedEmail, ipAddress)
       : false;
 
+    // Unverified accounts deliberately share the same generic 401 as unknown
+    // emails and wrong passwords so login cannot be used for enumeration.
     if (locked || !user || !passwordMatches || !user.isVerified) {
       if (this.loginAttemptStore && !locked) {
         await this.loginAttemptStore.recordFailure(normalizedEmail, ipAddress);

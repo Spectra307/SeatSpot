@@ -35,7 +35,10 @@ export function createApp({ authService, restaurantService, bookingServiceFactor
   });
 
   app.use((error, _request, response, _next) => {
-    response.status(error.status ?? 500).json({ error: error.message ?? 'Internal server error' });
+    const payload = { error: error.message ?? 'Internal server error' };
+    if (error.code) payload.code = error.code;
+    if (error.retryAfterSeconds !== undefined) payload.retryAfterSeconds = error.retryAfterSeconds;
+    response.status(error.status ?? 500).json(payload);
   });
 
   return app;

@@ -157,21 +157,41 @@ export class EmailService {
   // Public API
   // -------------------------------------------------------------------------
 
-  /** Send a verification OTP to a new user. Never throws. */
+  /**
+   * Send a verification OTP to a new user. Never throws.
+   * @returns {Promise<boolean>} true when the code was handed to SMTP (or logged
+   *   to the dev console), false when delivery was skipped or failed.
+   */
   async sendOtp(toEmail, otp, { expiresMinutes = 5 } = {}) {
     // In development with no SMTP config, print to console ONLY.
     if (!this.transport) {
       if (this.env !== 'production') {
         // eslint-disable-next-line no-console
-        this.logger.info(`[SeatSpot DEV] OTP for ${toEmail}: ${otp}`);
+        this.logger.error(`[SeatSpot DEV] OTP for ${toEmail}: ${otp}`);
+        // eslint-disable-next-line no-console
+        this.logger.error('[SeatSpot] SMTP not configured: OTPs print to this console only');
+        return true;
       }
-      return;
+      return false;
     }
-    await this._send({
-      to: toEmail,
-      subject: 'Your SeatSpot verification code',
-      html: otpTemplate({ otp, expiresMinutes })
-    });
+    try {
+      await this._send({
+        to: toEmail,
+        subject: 'Your SeatSpot verification code',
+        html: otpTemplate({ otp, expiresMinutes })
+      });
+      return true;
+    } catch (error) {
+      try {
+        this.logger.error('[SeatSpot] OTP email delivery failed for %s:', toEmail, error?.message ?? error);
+        if (error?.code) {
+          this.logger.error('[SeatSpot] SMTP error code:', error.code);
+        }
+      } catch {
+        // swallow
+      }
+      return false;
+    }
   }
 
   /** Fire-and-forget confirmation email. Never throws. */
@@ -232,6 +252,14 @@ export function createEmailService({ env, smtpHost, smtpPort, smtpUser, smtpPass
       secure: Number(smtpPort ?? 587) === 465,
       auth: smtpUser ? { user: smtpUser, pass: smtpPass } : undefined
     });
+  } else if ((env ?? process.env.NODE_ENV) === 'production') {
+    throw new Error('SMTP_HOST must be configured in production');
+  } else if ((env ?? process.env.NODE_ENV) !== 'test') {
+    try {
+      console.error('[SeatSpot] SMTP not configured: OTPs print to this console only');
+    } catch {
+      // ignore
+    }
   }
 
   return new EmailService({ transport, from: mailFrom, env });

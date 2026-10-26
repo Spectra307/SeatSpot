@@ -5,10 +5,18 @@ export function createAuthRouter(authService) {
 
   router.post('/signup', async (request, response, next) => {
     try {
-      await authService.signup(request.body);
-      response.status(201).json({
-        message: 'Account created. Check your email for the verification code.'
-      });
+      const result = await authService.signup(request.body) ?? {};
+      if (result.emailDispatched === false) {
+        response.status(201).json({
+          emailDispatched: false,
+          message: 'Account created but we could not send the verification email. Check server logs or try resending after cooldown.'
+        });
+      } else {
+        response.status(201).json({
+          emailDispatched: true,
+          message: 'Account created. Check your email for the verification code.'
+        });
+      }
     } catch (error) { next(error); }
   });
 
@@ -19,7 +27,22 @@ export function createAuthRouter(authService) {
       response.json({
         message: 'If the account can receive an OTP, a new code has been sent.'
       });
-    } catch (error) { next(error); }
+    } catch (error) {
+      if (error?.status === 429) {
+        const retryAfterSeconds = error.retryAfterSeconds ?? 60;
+        if (error.headers?.['Retry-After']) {
+          response.set('Retry-After', error.headers['Retry-After']);
+        } else {
+          response.set('Retry-After', String(retryAfterSeconds));
+        }
+        return response.status(429).json({
+          error: error.message,
+          code: error.code,
+          retryAfterSeconds
+        });
+      }
+      return next(error);
+    }
   });
 
   // Canonical resend endpoint with 60-second cooldown and hourly cap.
@@ -29,7 +52,22 @@ export function createAuthRouter(authService) {
       response.json({
         message: 'If the account can receive an OTP, a new code has been sent.'
       });
-    } catch (error) { next(error); }
+    } catch (error) {
+      if (error?.status === 429) {
+        const retryAfterSeconds = error.retryAfterSeconds ?? 60;
+        if (error.headers?.['Retry-After']) {
+          response.set('Retry-After', error.headers['Retry-After']);
+        } else {
+          response.set('Retry-After', String(retryAfterSeconds));
+        }
+        return response.status(429).json({
+          error: error.message,
+          code: error.code,
+          retryAfterSeconds
+        });
+      }
+      return next(error);
+    }
   });
 
   router.post('/verify-otp', async (request, response, next) => {
